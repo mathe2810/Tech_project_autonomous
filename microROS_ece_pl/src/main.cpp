@@ -314,6 +314,9 @@ void lidarPublishTask(void *param) {
     
     if(xSemaphoreTake(lidar_ready_semaphore, pdMS_TO_TICKS(500)) == pdTRUE) {
       if(xSemaphoreTake(lidar_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+        // Clear the message completely
+        memset(&msg_lidar, 0, sizeof(msg_lidar));
+        
         msg_lidar.header.stamp.sec = (uint32_t)(lidar_last_update / 1000);
         msg_lidar.header.stamp.nanosec = (lidar_last_update % 1000) * 1000000;
         msg_lidar.header.frame_id.data = (char*)"lidar_link";
@@ -368,6 +371,9 @@ void imuPublishTask(void *param) {
     if(xSemaphoreTake(imu_ready_semaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
       if(xSemaphoreTake(imu_mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
         int read_idx = active_imu_idx;
+        
+        // Clear message
+        memset(&msg_imu, 0, sizeof(msg_imu));
         
         msg_imu.header.stamp.sec = imu_data[read_idx].timestamp_ms / 1000;
         msg_imu.header.stamp.nanosec = (imu_data[read_idx].timestamp_ms % 1000) * 1000000;
