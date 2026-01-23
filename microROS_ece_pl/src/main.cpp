@@ -6,10 +6,13 @@
 #include <rclc/executor.h>
 #include <std_msgs/msg/int32.h>
 #include <sensor_msgs/msg/laser_scan.h>
+#include <sensor_msgs/msg/imu.h>
 #include <rmw_microros/rmw_microros.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/semphr.h>
+#include <Wire.h>
+#include <MPU6050.h>
 
 // Configuration
 #define WIFI_SSID "iPhone (3)"
@@ -26,12 +29,14 @@
 // ROS Objects
 rcl_publisher_t pub_int;
 rcl_publisher_t pub_lidar;
+rcl_publisher_t pub_imu;
 rcl_node_t node;
 rclc_support_t support;
 rcl_allocator_t allocator;
 rclc_executor_t executor;
 std_msgs__msg__Int32 msg_int;
 sensor_msgs__msg__LaserScan msg_lidar;
+sensor_msgs__msg__Imu msg_imu;
 
 // State Machine
 enum states {
@@ -43,7 +48,10 @@ enum states {
 // Thread-safe structures
 static SemaphoreHandle_t lidar_mutex = NULL;
 static SemaphoreHandle_t lidar_ready_semaphore = NULL;
+static SemaphoreHandle_t imu_mutex = NULL;
+static SemaphoreHandle_t imu_ready_semaphore = NULL;
 static TaskHandle_t publish_task_handle = NULL;
+static MPU6050 mpu;
 
 // Structure pour stocker un frame LIDAR complet (360 points)
 typedef struct {
@@ -58,6 +66,18 @@ typedef struct {
 static LidarFrame lidar_frames[2];
 static volatile int active_frame_idx = 0;  // Index du frame en cours de remplissage
 static volatile bool frame_ready = false;   // Un nouveau frame est prêt à publier
+
+// Structure pour IMU data
+typedef struct {
+    float accel_x, accel_y, accel_z;    // m/s²
+    float gyro_x, gyro_y, gyro_z;       // rad/s
+    float temperature;                   // °C
+    uint32_t timestamp_ms;
+} ImuData;
+
+static ImuData imu_data[2];
+static volatile int active_imu_idx = 0;
+static volatile bool imu_ready = false;
 
 int counter = 0;
 
@@ -89,6 +109,10 @@ bool create_entities() {
         ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, LaserScan), "/scan") != RCL_RET_OK) return false;
     #endif
     
+    // Publisher pour IMU
+    if (rclc_publisher_init_default(&pub_imu, &node,
+        ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu), "/imu/data") != RCL_RET_OK) return false;
+    
     executor = rclc_executor_get_zero_initialized_executor();
     if (rclc_executor_init(&executor, &support.context, 1, &allocator) != RCL_RET_OK) return false;
     
@@ -102,6 +126,7 @@ void destroy_entities() {
     #if LIDAR_ENABLED
     rcl_publisher_fini(&pub_lidar, &node);
     #endif
+    rcl_publisher_fini(&pub_imu, &node);
     rcl_node_fini(&node);
     rclc_executor_fini(&executor);
     rclc_support_fini(&support);
@@ -359,6 +384,149 @@ void lidarPublishTask(void *parameter) {
   }
 }
 
+// ==================== TÂCHE IMU (Cœur 1 - Alternance avec LIDAR) ====================
+void imuTask(void *parameter) {
+  Serial.println("[IMU] Task started - MPU6050 reading @ 20 Hz");
+  
+  uint32_t imu_count = 0;
+  uint32_t last_log = millis();
+  
+  while(1) {
+    // Lire MPU6050 @ 20 Hz (50ms)
+    int16_t ax, ay, az;
+    int16_t gx, gy, gz;
+    int16_t temp_raw;
+    
+    if(mpu.dmpGetCurrentFIFOPacket != NULL) {
+      // Lecture directe des données brutes
+      mpu.getAcceleration(&ax, &ay, &az);
+      mpu.getRotation(&gx, &gy, &gz);
+      temp_raw = mpu.getTemperature();
+    }
+    
+    // Convertir en SI units
+    // Accélération: ±2g, 16384 LSB/g
+    float accel_x = (ax / 16384.0f) * 9.81f;
+    float accel_y = (ay / 16384.0f) * 9.81f;
+    float accel_z = (az / 16384.0f) * 9.81f;
+    
+    // Gyroscope: ±250°/s, 131 LSB/°/s
+    float gyro_x = (gx / 131.0f) * (3.14159265f / 180.0f);
+    float gyro_y = (gy / 131.0f) * (3.14159265f / 180.0f);
+    float gyro_z = (gz / 131.0f) * (3.14159265f / 180.0f);
+    
+    // Température: 35°C @ 0 LSB, +1°C per 340 LSB
+    float temperature = 35.0f + ((float)temp_raw / 340.0f);
+    
+    // Double buffer - écrire dans l'autre buffer
+    int write_idx = 1 - active_imu_idx;
+    
+    if(xSemaphoreTake(imu_mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
+      imu_data[write_idx].accel_x = accel_x;
+      imu_data[write_idx].accel_y = accel_y;
+      imu_data[write_idx].accel_z = accel_z;
+      imu_data[write_idx].gyro_x = gyro_x;
+      imu_data[write_idx].gyro_y = gyro_y;
+      imu_data[write_idx].gyro_z = gyro_z;
+      imu_data[write_idx].temperature = temperature;
+      imu_data[write_idx].timestamp_ms = millis();
+      
+      active_imu_idx = write_idx;
+      imu_ready = true;
+      
+      xSemaphoreGive(imu_mutex);
+    }
+    
+    // Notifier la tâche de publication
+    if(imu_ready_semaphore) {
+      xSemaphoreGive(imu_ready_semaphore);
+    }
+    
+    imu_count++;
+    
+    // Log tous les 100 lectures
+    uint32_t now = millis();
+    if(imu_count % 100 == 0 && now - last_log > 5000) {
+      Serial.print("[IMU] ");
+      Serial.print(imu_count / 5);  // 100 lectures = ~5 secondes @ 20Hz
+      Serial.print(" samples | T: ");
+      Serial.print(imu_data[active_imu_idx].temperature, 1);
+      Serial.println("°C");
+      last_log = now;
+    }
+    
+    vTaskDelay(pdMS_TO_TICKS(50));  // 20 Hz (50ms)
+  }
+}
+
+// ==================== TÂCHE PUBLICATION IMU ====================
+void imuPublishTask(void *parameter) {
+  Serial.println("[IMU PUBLISH] Task started");
+  uint32_t pub_count = 0;
+  uint32_t last_log = millis();
+  
+  while(1) {
+    if(xSemaphoreTake(imu_ready_semaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
+      
+      if(imu_ready && xSemaphoreTake(imu_mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
+        imu_ready = false;
+        
+        int read_idx = active_imu_idx;
+        ImuData* data = &imu_data[read_idx];
+        
+        // Remplir le message IMU
+        msg_imu.header.stamp.sec = (uint32_t)(data->timestamp_ms / 1000);
+        msg_imu.header.stamp.nanosec = (data->timestamp_ms % 1000) * 1000000;
+        msg_imu.header.frame_id.data = (char*)"imu_link";
+        msg_imu.header.frame_id.size = strlen("imu_link");
+        
+        // Orientation (pas disponible sans calibration)
+        msg_imu.orientation.x = 0.0;
+        msg_imu.orientation.y = 0.0;
+        msg_imu.orientation.z = 0.0;
+        msg_imu.orientation.w = 1.0;
+        msg_imu.orientation_covariance[0] = -1.0;  // Not available
+        
+        // Accélération (m/s²)
+        msg_imu.linear_acceleration.x = data->accel_x;
+        msg_imu.linear_acceleration.y = data->accel_y;
+        msg_imu.linear_acceleration.z = data->accel_z;
+        for(int i = 0; i < 9; i++) {
+          msg_imu.linear_acceleration_covariance[i] = (i % 4 == 0) ? 0.01 : 0.0;
+        }
+        
+        // Vitesse angulaire (rad/s)
+        msg_imu.angular_velocity.x = data->gyro_x;
+        msg_imu.angular_velocity.y = data->gyro_y;
+        msg_imu.angular_velocity.z = data->gyro_z;
+        for(int i = 0; i < 9; i++) {
+          msg_imu.angular_velocity_covariance[i] = (i % 4 == 0) ? 0.01 : 0.0;
+        }
+        
+        // Publier
+        rcl_ret_t ret = rcl_publish(&pub_imu, &msg_imu, NULL);
+        if(ret == RCL_RET_OK) {
+          pub_count++;
+        } else {
+          Serial.print("[IMU PUB ERROR] ");
+          Serial.println(ret);
+        }
+        
+        xSemaphoreGive(imu_mutex);
+        
+        // Log tous les 20 publications
+        uint32_t now = millis();
+        if(pub_count % 20 == 0 && now - last_log > 1000) {
+          Serial.print("[IMU PUB] ");
+          Serial.print(pub_count);
+          Serial.println(" pub");
+          last_log = now;
+        }
+      }
+    }
+  }
+}
+
 void lidar_init() {
   LIDAR_SERIAL.begin(LIDAR_BAUD, SERIAL_8N1, LIDAR_RX, -1);
   lidar_mutex = xSemaphoreCreateMutex();
@@ -396,6 +564,59 @@ void lidar_init() {
 }
 #endif
 
+void mpu_init() {
+  // Initialize I2C
+  Wire.begin(21, 22, 400000);  // SDA=21, SCL=22, 400kHz
+  delay(100);
+  
+  // Initialize MPU6050
+  Serial.print("[MPU6050] Initializing...");
+  mpu.initialize();
+  
+  if (!mpu.testConnection()) {
+    Serial.println(" FAILED!");
+    return;
+  }
+  Serial.println(" OK!");
+  
+  // Configure MPU6050
+  mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);  // ±2g
+  mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_250);   // ±250°/s
+  mpu.setSleepEnabled(false);
+  
+  // Create synchronization primitives
+  imu_mutex = xSemaphoreCreateMutex();
+  imu_ready_semaphore = xSemaphoreCreateBinary();
+  
+  if (!imu_mutex || !imu_ready_semaphore) {
+    Serial.println("[MPU6050] ERROR: Failed to create sync primitives");
+    return;
+  }
+  
+  // Create IMU tasks
+  xTaskCreatePinnedToCore(
+    imuTask,
+    "ImuReadTask",
+    3072,
+    NULL,
+    2,
+    NULL,
+    1     // Core 1 (alternates with LIDAR)
+  );
+  
+  xTaskCreatePinnedToCore(
+    imuPublishTask,
+    "ImuPublishTask",
+    3072,
+    NULL,
+    1,
+    NULL,
+    0     // Core 0
+  );
+  
+  Serial.println("[MPU6050] ✅ Initialized - I2C (SDA=21, SCL=22) @ 20Hz");
+}
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
@@ -405,6 +626,9 @@ void setup() {
     lidar_init();
     delay(500);
     #endif
+    
+    mpu_init();
+    delay(500);
     
     char ssid[] = "iPhone (3)";
     char password[] = "Dr69qf76&*";
