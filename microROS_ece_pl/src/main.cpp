@@ -23,8 +23,7 @@
 // LIDAR Configuration
 #define LIDAR_ENABLED 1
 #define LIDAR_RX 16
-#define LIDAR_PWM 25
-#define LIDAR_BAUD 460800  // Maximum pour ESP32 (2x plus rapide = plus de frames/sec)
+#define LIDAR_BAUD 230400  // Standard LD06 baud rate (460800 was causing data loss!)
 
 // ROS Objects
 rcl_publisher_t pub_int;
@@ -53,30 +52,33 @@ static SemaphoreHandle_t imu_ready_semaphore = NULL;
 static TaskHandle_t publish_task_handle = NULL;
 static MPU6050 mpu;
 
-// Simple circular buffer pour LIDAR (360 points maximum)
+// ==================== LIDAR CIRCULAR BUFFER ====================
 #define LIDAR_MAX_POINTS 360
 typedef struct {
     float angle;
     float distance;
     uint8_t confidence;
-} LidarPoint;
+} LidarPoint;  // 13 bytes each
 
-// Global circular buffer (360 points * ~13 bytes = ~4.7KB)
+// Global circular buffer (360 points * 13 bytes = 4680 bytes static)
 static volatile LidarPoint lidar_buffer[LIDAR_MAX_POINTS];
 static volatile uint16_t lidar_buffer_head = 0;
 static volatile uint16_t lidar_buffer_count = 0;
 static volatile uint32_t lidar_last_update = 0;
 
-// Structure pour stocker un frame LIDAR complet (360 points - MINIMAL)
+// ==================== LIDAR FRAME STRUCTURE ====================
 typedef struct {
-    uint32_t timestamp_ms;
-    int valid_points;
+    float angles[360];           // Angle en degrés (0-360)
+    float distances[360];        // Distance en mètres
+    uint8_t confidences[360];    // Confiance 0-255
+    int valid_points;            // Nombre de points valides
+    uint32_t timestamp_ms;       // Timestamp du frame
 } LidarFrame;
 
-// Double buffer pour éviter les race conditions (minimal size)
+// Double buffer pour éviter les race conditions
 static LidarFrame lidar_frames[2];
-static volatile int active_frame_idx = 0;
-static volatile bool frame_ready = false;
+static volatile int active_frame_idx = 0;  // Index du frame en cours de remplissage
+static volatile bool frame_ready = false;   // Un nouveau frame est prêt à publier
 
 // Structure pour IMU data
 typedef struct {
@@ -183,11 +185,12 @@ void lidarTask(void *parameter) {
   uint8_t version_length = 0;
   int points_expected = 12;
   const int MAX_FRAME_SIZE = 1 + 1 + 2 + 2 + 12 * 3 + 2 + 2 + 1;
-  uint8_t frame_buffer[MAX_FRAME_SIZE];  // 65 bytes - OK for stack
+  uint8_t frame_buffer[MAX_FRAME_SIZE];  // 65 bytes - ONLY on stack
   int frame_index = 0;
   
   uint32_t frames_parsed = 0;
-  Serial.println("[LIDAR] Task started on core 1 - Memory optimized");
+  Serial.println("[LIDAR] 🚀 Task started on core 1 @ 230400 baud - Circular buffer");
+  Serial.println("[LIDAR] 📍 Waiting for first frame header...");
   
   while(1) {
     while(LIDAR_SERIAL.available() > 0) {
@@ -238,7 +241,15 @@ void lidarTask(void *parameter) {
               
               float start_angle_deg = startA * 0.01f;
               
-              // ⭐ Ajouter les points directement au buffer circulaire GLOBAL
+              // DEBUG: Print first frame to confirm data arrival
+              if(frames_parsed == 0) {
+                Serial.print("[LIDAR] ✅ First frame! Start: ");
+                Serial.print(start_angle_deg);
+                Serial.print("° | Points: ");
+                Serial.println(points_expected);
+              }
+              
+              // Add points DIRECTLY to global circular buffer (0-360 indexing)
               if(xSemaphoreTake(lidar_mutex, pdMS_TO_TICKS(2)) == pdTRUE) {
                 for(int i = 0; i < points_expected; i++) {
                   uint16_t dist = frame_buffer[pi++] | (frame_buffer[pi++] << 8);
@@ -246,13 +257,12 @@ void lidarTask(void *parameter) {
                   float dist_m = dist / 1000.0f;
                   float angle_deg = fmod(start_angle_deg + (float)i * (10.0f / points_expected), 360.0f);
                   
-                  // Ajouter au buffer circulaire global
-                  uint16_t idx = lidar_buffer_head % LIDAR_MAX_POINTS;
-                  lidar_buffer[idx].angle = angle_deg;
-                  lidar_buffer[idx].distance = dist_m;
-                  lidar_buffer[idx].confidence = conf;
+                  // MAP angle to index [0-360]
+                  uint16_t angle_idx = (uint16_t)round(angle_deg) % 360;
+                  lidar_buffer[angle_idx].angle = angle_deg;
+                  lidar_buffer[angle_idx].distance = dist_m;
+                  lidar_buffer[angle_idx].confidence = conf;
                   
-                  lidar_buffer_head++;
                   if(lidar_buffer_count < LIDAR_MAX_POINTS) {
                     lidar_buffer_count++;
                   }
@@ -263,13 +273,13 @@ void lidarTask(void *parameter) {
                   lidar_stats.points_total++;
                 }
                 
-                // Mettre à jour timestamp
+                lidar_buffer_head++;  // Increment frame counter
                 lidar_last_update = millis();
                 frame_ready = true;
                 
                 xSemaphoreGive(lidar_mutex);
                 
-                // Notifier la publication tous les 3 frames
+                // Signal publish task every 3 frames
                 if(frames_parsed % 3 == 0) {
                   if(lidar_ready_semaphore) {
                     xSemaphoreGive(lidar_ready_semaphore);
@@ -277,16 +287,21 @@ void lidarTask(void *parameter) {
                 }
               }
               
-              // Log tous les 100 frames
-              if(frames_parsed % 100 == 0) {
-                Serial.print("[LIDAR] ");
+              // Log every 30 frames (~1 Hz @ 30 Hz)
+              if(frames_parsed % 30 == 0) {
+                Serial.print("[LIDAR] 📊 Frame ");
                 Serial.print(frames_parsed);
-                Serial.print(" frames | ");
+                Serial.print(" | Valid: ");
                 Serial.print(lidar_stats.points_valid);
-                Serial.println(" valid pts");
+                Serial.print(" | CRC_err: ");
+                Serial.println(lidar_stats.frames_crc_error);
               }
             } else {
               lidar_stats.frames_crc_error++;
+              if(frames_parsed < 5) {
+                Serial.print("[LIDAR] ⚠️  CRC error frame ");
+                Serial.println(frames_parsed);
+              }
             }
             
             state = FIND_HEADER;
@@ -295,7 +310,7 @@ void lidarTask(void *parameter) {
           break;
       }
     }
-    vTaskDelay(pdMS_TO_TICKS(0));
+    vTaskDelay(pdMS_TO_TICKS(0));  // Laisser respirer
   }
 }
 
@@ -312,9 +327,13 @@ void lidarPublishTask(void *parameter) {
       if(frame_ready && xSemaphoreTake(lidar_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
         frame_ready = false;
         
+        // Utiliser le frame prêt
+        int read_idx = active_frame_idx;
+        LidarFrame* frame = &lidar_frames[read_idx];
+        
         // Créer et publier le message ROS2
-        msg_lidar.header.stamp.sec = (uint32_t)(lidar_last_update / 1000);
-        msg_lidar.header.stamp.nanosec = (lidar_last_update % 1000) * 1000000;
+        msg_lidar.header.stamp.sec = (uint32_t)(frame->timestamp_ms / 1000);
+        msg_lidar.header.stamp.nanosec = (frame->timestamp_ms % 1000) * 1000000;
         msg_lidar.header.frame_id.data = (char*)"lidar_link";
         msg_lidar.header.frame_id.size = strlen("lidar_link");
         
@@ -322,7 +341,7 @@ void lidarPublishTask(void *parameter) {
         msg_lidar.angle_max = 2.0f * 3.14159265f;
         msg_lidar.angle_increment = (2.0f * 3.14159265f) / 360.0f;
         msg_lidar.time_increment = 0.0f;
-        msg_lidar.scan_time = 1.0f / 30.0f;  // 30 Hz
+        msg_lidar.scan_time = 1.0f / 30.0f;  // 30 Hz = ~33ms par scan
         msg_lidar.range_min = 0.06f;
         msg_lidar.range_max = 12.0f;
         
@@ -330,19 +349,9 @@ void lidarPublishTask(void *parameter) {
         msg_lidar.ranges.data = (float*)malloc(sizeof(float) * 360);
         msg_lidar.ranges.size = 360;
         
-        // Initialiser tous à 0
+        // Remplir avec les données du buffer circulaire (360 points)
         for(int i = 0; i < 360; i++) {
-          msg_lidar.ranges.data[i] = 0.0f;
-        }
-        
-        // Remplir avec les données du buffer circulaire
-        for(uint16_t i = 0; i < lidar_buffer_count; i++) {
-          uint16_t idx = (lidar_buffer_head - lidar_buffer_count + i) % LIDAR_MAX_POINTS;
-          if(idx < LIDAR_MAX_POINTS) {
-            int angle_idx = (int)round(lidar_buffer[idx].angle) % 360;
-            if(angle_idx < 0) angle_idx += 360;
-            msg_lidar.ranges.data[angle_idx] = lidar_buffer[idx].distance;
-          }
+          msg_lidar.ranges.data[i] = lidar_buffer[i].distance;
         }
         
         msg_lidar.intensities.data = NULL;
@@ -353,7 +362,7 @@ void lidarPublishTask(void *parameter) {
         if(ret == RCL_RET_OK) {
           publish_count++;
         } else {
-          Serial.print("[LIDAR PUB ERROR] ");
+          Serial.print("[PUBLISH ERROR] ");
           Serial.println(ret);
         }
         
@@ -365,7 +374,9 @@ void lidarPublishTask(void *parameter) {
         if(publish_count % 30 == 0 && now - last_log > 1000) {
           Serial.print("[LIDAR PUB] ");
           Serial.print(publish_count);
-          Serial.println(" pub");
+          Serial.print(" pub | Freq: ");
+          Serial.print((publish_count - (publish_count/30)*30) / ((now - last_log)/1000.0f));
+          Serial.println(" Hz");
           last_log = now;
         }
       }
@@ -528,7 +539,7 @@ void lidar_init() {
   xTaskCreatePinnedToCore(
     lidarTask,
     "LidarReadTask",
-    5120,  // Augmenté: 5120 bytes (était 4096) - minimal stack
+    4096,
     NULL,
     3,      // Très haute priorité
     NULL,
@@ -546,7 +557,7 @@ void lidar_init() {
     0       // Core 0 (où tourne le ROS2)
   );
   
-  Serial.println("[LIDAR] ✅ Memory-optimized: Circular buffer");
+  Serial.println("[LIDAR] ⚡ OPTIMIZED: Core 1 reads, Core 0 publishes");
   Serial.println("[LIDAR] 📊 Target: 30+ Hz publication, 360 points per scan");
 }
 #endif
