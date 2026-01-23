@@ -254,7 +254,7 @@ void lidarTask(void *param) {
 // ==================== IMU TASK (Core 1) ====================
 void imuTask(void *param) {
   Serial.println("[IMU] Task started on Core 1");
-  Wire.begin(21, 22, 400000);
+  Wire.begin(33, 32, 400000);  // SDA=33, SCL=32 (GPIO pins)
   delay(100);
   
   if(!mpu.testConnection()) {
