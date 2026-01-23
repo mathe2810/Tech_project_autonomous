@@ -397,12 +397,10 @@ void imuTask(void *parameter) {
     int16_t gx, gy, gz;
     int16_t temp_raw;
     
-    if(mpu.dmpGetCurrentFIFOPacket != NULL) {
-      // Lecture directe des données brutes
-      mpu.getAcceleration(&ax, &ay, &az);
-      mpu.getRotation(&gx, &gy, &gz);
-      temp_raw = mpu.getTemperature();
-    }
+    // Lecture directe des données brutes
+    mpu.getAcceleration(&ax, &ay, &az);
+    mpu.getRotation(&gx, &gy, &gz);
+    temp_raw = mpu.getTemperature();
     
     // Convertir en SI units
     // Accélération: ±2g, 16384 LSB/g
