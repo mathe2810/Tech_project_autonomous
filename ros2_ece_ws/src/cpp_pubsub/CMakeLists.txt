@@ -33,6 +33,10 @@ ament_target_dependencies(lidar_buffer rclcpp std_msgs sensor_msgs)
 add_executable(tf_broadcaster src/tf_broadcaster.cpp)
 ament_target_dependencies(tf_broadcaster rclcpp tf2_ros geometry_msgs)
 
+# Sensor Fusion Listener (IMU + LIDAR)
+add_executable(sensor_fusion_listener src/sensor_fusion_listener.cpp)
+ament_target_dependencies(sensor_fusion_listener rclcpp sensor_msgs)
+
 # Install executables
 install(TARGETS
   tf_broadcaster
@@ -40,6 +44,7 @@ install(TARGETS
   listener
   ultrasonic_processor
   lidar_buffer
+  sensor_fusion_listener
   DESTINATION lib/${PROJECT_NAME}
 )
 
