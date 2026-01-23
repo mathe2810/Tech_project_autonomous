@@ -1,0 +1,57 @@
+# Build directories
+build/
+install/
+log/
+.pio/
+.vscode/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ROS2 specific
+install/
+build/
+log/
+*.bag
+
+# PlatformIO
+.pio/
+.vscode/
+lib/
+build_log.txt
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# colcon
+colcon_command_log.log
+
+# OS
+.DS_Store
+Thumbs.db
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak

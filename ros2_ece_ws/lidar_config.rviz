@@ -1,0 +1,150 @@
+Panels:
+  - Class: rviz_common/Displays
+    Help Height: 78
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Global Options1
+        - /Grid1
+        - /LaserScan1
+      Splitter Ratio: 0.5
+    Tree Height: 280
+  - Class: rviz_common/Selection
+    Name: Selection
+  - Class: rviz_common/Tool Properties
+    Expanded:
+      - /2D Goal Pose1
+      - /Publish Point1
+    Name: Tool Properties
+    Splitter Ratio: 0.588679
+  - Class: rviz_common/Views
+    Expanded:
+      - /Current View1
+    Name: Views
+    Splitter Ratio: 0.5
+Toolbars:
+  toolButtonStyle: 2
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.5
+      Cell Size: 1
+      Class: rviz_common/Grid
+      Color: 160; 160; 164
+      Enabled: true
+      Line Style:
+        Line Width: 0.029999999329447746
+        Value: Lines
+      Name: Grid
+      Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Plane: XY
+      Plane Cell Count: 10
+      Reference Frame: <Fixed Frame>
+      Value: true
+    - Class: rviz_common/LaserScan
+      Decay Time: 0.2
+      Enabled: true
+      Invert Rainbow: false
+      Max Color:
+        B: 1
+        G: 1
+        R: 1
+      Max Intensity: -1
+      Min Color:
+        B: 0
+        G: 0
+        R: 0
+      Min Intensity: 0
+      Name: LaserScan
+      Position Tolerance: 0.1
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.05
+      Style: Spheres
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /scan
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+    - Angle Tolerance: 0.1
+      Class: rviz_common/FrameTransform
+      Enabled: true
+      Frame Style: Wireframe
+      Name: FrameTransform
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
+      Update Interval: 0
+      Value: true
+      XYZ Axis Names: X, Y, Z
+      XYZ Axis Colors: [255, 0, 0], [0, 255, 0], [0, 0, 255]
+  Enabled: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: lidar_link
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_common/Interact
+      Hide Inactive Objects: true
+    - Class: rviz_common/MoveCamera
+    - Class: rviz_common/Select
+    - Class: rviz_common/FocusCamera
+    - Class: rviz_common/Measure
+      Class Name: rviz_common/Measure
+    - Class: rviz_default_plugins/PublishPoint
+      Single click publishing: true
+      Topic: /clicked_point
+    - Class: rviz_default_plugins/GoalPose
+      Topic: /goal_pose
+    - Class: rviz_default_plugins/Navigation2D
+      Topic: /move_base_simple/goal
+  Value: true
+  Views:
+    Current:
+      Class: rviz_common/Orbit
+      Distance: 5
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.05999999865889549
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Focal Shape Fixed Size: true
+      Focal Shape Size: 0.05000000074505806
+      Invert Z Axis: false
+      Name: Current View
+      Near Clip Distance: 0.009999999776482582
+      Pitch: 0.6653981805801392
+      Target Frame: <Fixed Frame>
+      Value: Orbit (rviz)
+      Yaw: 3.141592979431152
+    Saved Views: []
+Window Geometry:
+  Displays:
+    collapsed: false
+  Height: 1378
+  Hide Left Dock: false
+  Hide Right Dock: false
+  QMainWindow State: 000000ff00000000fd00000004000000000000018f0000047efc0200000009fb0000001200530065006c0065006300740069006f006e00000001560000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f0070006500720074006900650073010000025b0000013e0000003d00fffffffb000000120056006900650077007300200054006f006f006c00730000000140000002ee0000006e00fffffffb0000000c004400690073.
+  Selection:
+    collapsed: false
+  Tool Properties:
+    collapsed: false
+  Views:
+    collapsed: false
+  Width: 2560
+  X: 1920
+  Y: 0
