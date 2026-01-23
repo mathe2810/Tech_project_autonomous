@@ -81,6 +81,10 @@ static volatile LidarPoint lidar_buffer[LIDAR_MAX_POINTS];
 static volatile uint32_t lidar_last_update = 0;
 static HardwareSerial LIDAR_SERIAL(2);
 
+// Pre-allocate LIDAR message buffers (NO malloc/free in loop!)
+static float lidar_ranges_buffer[360];
+static float lidar_intensities_buffer[360];
+
 struct LidarStats { 
   uint32_t frames_total = 0, frames_valid = 0, frames_crc_error = 0;
   uint32_t points_total = 0, points_valid = 0;
@@ -254,7 +258,7 @@ void lidarTask(void *param) {
 // ==================== IMU TASK (Core 1) ====================
 void imuTask(void *param) {
   Serial.println("[IMU] Task started on Core 1");
-  Wire.begin(33, 32, 400000);  // SDA=33, SCL=32 (GPIO pins)
+  Wire.begin(4, 5, 400000);  // SDA=33, SCL=32 (GPIO pins)
   delay(100);
   
   if(!mpu.testConnection()) {
@@ -323,9 +327,11 @@ void lidarPublishTask(void *param) {
         msg_lidar.range_min = 0.06f;
         msg_lidar.range_max = 12.0f;
         
-        msg_lidar.ranges.data = (float*)malloc(sizeof(float) * 360);
+        // Use pre-allocated buffer (no malloc!)
+        msg_lidar.ranges.data = lidar_ranges_buffer;
         msg_lidar.ranges.size = 360;
         
+        // Fill with data
         for(int i = 0; i < 360; i++) {
           msg_lidar.ranges.data[i] = lidar_buffer[i].distance;
         }
@@ -337,7 +343,7 @@ void lidarPublishTask(void *param) {
           pub_count++;
         }
         
-        free(msg_lidar.ranges.data);
+        // NO free() - buffer is static and reused!
         xSemaphoreGive(lidar_mutex);
         
         if(pub_count % 30 == 0) {
