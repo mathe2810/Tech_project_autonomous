@@ -17,7 +17,7 @@
 
 #define WIFI_SSID "iPhone (3)"
 #define WIFI_PASSWORD "Dr69qf76&*"
-#define AGENT_IP IPAddress(172, 20, 10, 3)
+#define AGENT_IP IPAddress(172, 20, 10, 4)
 #define AGENT_PORT 8888
 
 #define LIDAR_RX 16
@@ -35,6 +35,7 @@ sensor_msgs__msg__Imu msg_imu;
 
 enum states { WAITING_AGENT, AGENT_CONNECTED, AGENT_DISCONNECTED } state;
 static volatile bool agent_connected = false;
+static TaskHandle_t publish_task_handle = NULL;  // Track publish task to avoid duplicates
 
 // Lock-free circular buffers
 #define LIDAR_BUFFER_SIZE 4
@@ -113,7 +114,7 @@ static KalmanFilter1D kf_ax, kf_ay, kf_az;
 void kalman_init(KalmanFilter1D *kf) {
   kf->x = 0.0f;
   kf->P = 1.0f;
-  kf->R = 0.1f;
+  kf->R = 5.0f;  // Increased to trust sensor more (was 0.1f - too aggressive smoothing)
 }
 
 float kalman_update(KalmanFilter1D *kf, float z) {
@@ -277,14 +278,41 @@ void imuTask(void *param) {
   kalman_init(&kf_ay);
   kalman_init(&kf_az);
   
+  uint32_t debug_count = 0;
+  
   while(1) {
     if(millis() - last_imu_read >= 10) {
       int16_t ax, ay, az, gx, gy, gz;
       mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
       
-      float ax_g = ax / 16384.0f * 9.81f;
-      float ay_g = ay / 16384.0f * 9.81f;
-      float az_g = az / 16384.0f * 9.81f;
+      // Debug: affiche les valeurs brutes toutes les 100 lectures
+      if(debug_count++ % 100 == 0) {
+        Serial.printf("[IMU RAW] ax=%d ay=%d az=%d gx=%d gy=%d gz=%d\n", ax, ay, az, gx, gy, gz);
+      }
+      
+      // Convert raw counts to m/s² and rad/s (no filtering - raw data only)
+      // 1g = 16384 LSB = 9.81 m/s²
+      // 1°/s = 131 LSB
+      float accel_x = ax / 16384.0f * 9.81f;
+      float accel_y = ay / 16384.0f * 9.81f;
+      float accel_z = az / 16384.0f * 9.81f;
+      
+      float gyro_x = gx / 131.0f * 0.01745f;  // deg/s to rad/s
+      float gyro_y = gy / 131.0f * 0.01745f;
+      float gyro_z = gz / 131.0f * 0.01745f;
+      
+      // Remap axes based on ACTUAL physical sensor orientation:
+      // Sensor X (vertical/gravity) → ROS Z (remove gravity component: -9.81)
+      // Sensor Y (forward/backward) → ROS X
+      // Sensor Z (left/right) → ROS Y
+      float accel_x_ros = accel_y;              // Sensor Y → ROS X (forward/back)
+      float accel_y_ros = accel_z;              // Sensor Z → ROS Y (left/right)
+      float accel_z_ros = accel_x - 9.81f;     // Sensor X → ROS Z (gravity removed)
+      
+      // Same remap for gyro axes
+      float gyro_x_ros = gyro_y;                // Sensor Y → ROS X
+      float gyro_y_ros = gyro_z;                // Sensor Z → ROS Y
+      float gyro_z_ros = gyro_x;                // Sensor X → ROS Z
       
       // Lock-free write to circular buffer
       uint8_t current_write = imu_write_idx.load();
@@ -294,12 +322,13 @@ void imuTask(void *param) {
       if(next_write != imu_read_idx.load()) {
         ImuData *imu = &imu_buffer[current_write];
         
-        imu->ax = kalman_update(&kf_ax, ax_g);
-        imu->ay = kalman_update(&kf_ay, ay_g);
-        imu->az = kalman_update(&kf_az, az_g);
-        imu->gx = gx / 131.0f * 0.01745f;
-        imu->gy = gy / 131.0f * 0.01745f;
-        imu->gz = gz / 131.0f * 0.01745f;
+        // Send raw converted data (no Kalman filtering on ESP32)
+        imu->ax = accel_x_ros;
+        imu->ay = accel_y_ros;
+        imu->az = accel_z_ros;
+        imu->gx = gyro_x_ros;
+        imu->gy = gyro_y_ros;
+        imu->gz = gyro_z_ros;
         imu->ts = millis();
         
         imu_write_idx.store(next_write);
@@ -410,38 +439,75 @@ void setup() {
 }
 
 void loop() {
+  static uint32_t last_agent_check = 0;
+  uint32_t now = millis();
+  
   switch(state) {
     case WAITING_AGENT:
-      if(rmw_uros_ping_agent(100, 1) == RMW_RET_OK) {
-        Serial.println("[AGENT] OK");
-        if(create_entities()) {
-          state = AGENT_CONNECTED;
-          agent_connected = true;
-          xTaskCreatePinnedToCore(publishTask, "PUBLISH", 4096, NULL, 2, NULL, 0);
-          Serial.println("[STATE] CONNECTED");
-        } else {
-          destroy_entities();
-          state = WAITING_AGENT;
+      if(WiFi.status() == WL_CONNECTED) {
+        // Only ping agent every 1s to avoid flooding
+        if(now - last_agent_check >= 1000) {
+          if(rmw_uros_ping_agent(100, 1) == RMW_RET_OK) {
+            Serial.println("[AGENT] OK");
+            if(create_entities()) {
+              state = AGENT_CONNECTED;
+              agent_connected = true;
+              
+              // Delete old task if it exists (safety check)
+              if(publish_task_handle != NULL) {
+                vTaskDelete(publish_task_handle);
+                publish_task_handle = NULL;
+                delay(100);
+              }
+              
+              // Create new publish task
+              xTaskCreatePinnedToCore(publishTask, "PUBLISH", 4096, NULL, 2, &publish_task_handle, 0);
+              Serial.println("[STATE] CONNECTED");
+            } else {
+              destroy_entities();
+              state = WAITING_AGENT;
+              Serial.println("[AGENT] create_entities failed, retrying...");
+            }
+          } else {
+            Serial.print(".");
+          }
+          last_agent_check = now;
         }
+      } else {
+        Serial.println("[WiFi] Connecting...");
+        last_agent_check = now;
       }
-      delay(2000);
+      delay(500);
       break;
       
     case AGENT_CONNECTED:
+      // Only check WiFi - don't ping agent while connected, it interferes with data flow
       if(WiFi.status() != WL_CONNECTED) {
+        Serial.println("[WiFi] Lost connection");
         agent_connected = false;
         state = AGENT_DISCONNECTED;
         break;
       }
+      
       rclc_executor_spin_some(&executor, RCL_MS_TO_NS(5));
       vTaskDelay(pdMS_TO_TICKS(1));
       break;
       
     case AGENT_DISCONNECTED:
       agent_connected = false;
+      
+      // Delete publish task before destroying entities
+      if(publish_task_handle != NULL) {
+        vTaskDelete(publish_task_handle);
+        publish_task_handle = NULL;
+        delay(100);
+      }
+      
       destroy_entities();
       state = WAITING_AGENT;
-      Serial.println("[STATE] Reconnect");
+      Serial.println("[STATE] Reconnecting...");
+      last_agent_check = 0;  // Reset timer to check immediately
+      delay(1000);
       break;
   }
 }

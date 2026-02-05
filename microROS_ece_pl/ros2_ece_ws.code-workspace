@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "../../../../ros_test/ros2_ece_ws"
+		},
+		{
+			"name": "microROS_ece_pl",
+			"path": "../../../../Documents/PlatformIO/Projects/microROS_ece_pl"
+		},
+		{
+			"name": "microROS_ece_pl",
+			"path": "."
+		}
+	],
+	"settings": {}
+}
