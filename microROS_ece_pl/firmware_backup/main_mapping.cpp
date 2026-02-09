@@ -22,9 +22,11 @@
 
 // ============ LIDAR Configuration =============
 #define LIDAR_RX 16
+#define LIDAR_TX -1  // RX-only, no TX
 #define LIDAR_BAUD 230400
 #define LIDAR_HEADER 0x54
 #define PTS_PER_FRAME 12
+static HardwareSerial LIDAR_SERIAL(1);  // Use Serial1 for LIDAR
 
 // ============ Motor Control Pins =============
 #define MOTOR_LEFT_PWM    25
@@ -40,11 +42,8 @@
 #define PWM_FREQ          100000
 #define PWM_RESOLUTION    8
 
-// ============ Encoder Pins (for optional PID) =============
-#define ENCODER_LEFT_A    34
-#define ENCODER_LEFT_B    35
-#define ENCODER_RIGHT_A   12
-#define ENCODER_RIGHT_B   14
+// ============ Encoder Pins (NOT USED - no encoders on this robot) =============
+// Encoders not available: use IMU gyro + LIDAR scan matching for odometry
 
 // ============ Micro-ROS =============
 rcl_publisher_t pub_lidar, pub_imu;
@@ -96,7 +95,8 @@ static volatile int actual_speed_right = 0;
 static uint32_t last_motor_update = 0;
 
 // ============ Mapping Control =============
-enum MappingState { IDLE, MOVING_FORWARD, TURNING, COMPLETING_CIRCUIT } mapping_state = IDLE;
+enum MappingState { IDLE, MOVING_FORWARD, TURNING, COMPLETING_CIRCUIT };
+static MappingState mapping_state = (MappingState)0;  // 0 = IDLE
 static float total_distance = 0;      // meters traveled
 static float total_rotation = 0;      // degrees rotated
 static uint32_t mapping_start_time = 0;
@@ -120,6 +120,12 @@ uint8_t crc8(const uint8_t *data, uint32_t len) {
   }
   return crc;
 }
+
+// ============ Forward Declarations =============
+void motors_stop();
+void motor_left(int speed);
+void motor_right(int speed);
+void motors_drive(int throttle, int steering);
 
 // ============ Motor Control Functions =============
 void motor_init() {

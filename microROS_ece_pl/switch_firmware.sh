@@ -5,8 +5,8 @@ set -e
 
 CURRENT_DIR=$(pwd)
 MAIN_FILE="src/main.cpp"
-MAPPING_FILE="src/main_mapping.cpp"
-BACKUP_FILE="src/main_sensor_fusion_backup.cpp"
+MAPPING_FILE="firmware_backup/main_mapping.cpp"
+BACKUP_FILE="firmware_backup/main_sensor_fusion_backup.cpp"
 
 echo "=== Firmware Version Switcher ==="
 echo ""

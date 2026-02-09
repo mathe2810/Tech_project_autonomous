@@ -1,5 +1,5 @@
 #!/bin/bash
-# Startup script - Lance agent + RViz + IMU Filter + SLAM
+# Startup script - Lance agent + RViz + IMU Filter + SLAM + Coverage
 
 set -e
 
@@ -7,13 +7,14 @@ set -e
 source /opt/ros/humble/setup.bash
 source /home/matheo/microros_ece_ws/install/setup.bash
 
-echo "=== Starting ROS2 Micro-ROS SLAM Stack ==="
+echo "=== Starting ROS2 Micro-ROS SLAM Stack (with Coverage Node) ==="
 
 # Kill any previous instances
 pkill -f "micro_ros_agent" || true
 pkill -f "rviz2" || true
 pkill -f "imu_kalman_filter" || true
 pkill -f "simple_slam" || true
+pkill -f "coverage_node" || true
 
 sleep 1
 
@@ -21,28 +22,34 @@ sleep 1
 RVIZ_CONFIG=$(ros2 pkg prefix cpp_pubsub)/share/cpp_pubsub/launch/lidar_buffer_imu.rviz
 
 # Start processes in background
-echo "[1/4] Starting Micro-ROS Agent on port 8888..."
+echo "[1/5] Starting Micro-ROS Agent on port 8888..."
 ros2 run micro_ros_agent micro_ros_agent udp4 --port 8888 &
 AGENT_PID=$!
 
 sleep 2
 
-echo "[2/4] Starting RViz2..."
+echo "[2/5] Starting RViz2..."
 rviz2 -d "$RVIZ_CONFIG" &
 RVIZ_PID=$!
 
 sleep 2
 
-echo "[3/4] Starting IMU EMA Filter..."
+echo "[3/5] Starting IMU EMA Filter..."
 cd /home/matheo/microros_ece_ws/src/micro_ros_setup/microROS_ece_pl
 python3 imu_kalman_filter.py &
 FILTER_PID=$!
 
 sleep 1
 
-echo "[4/4] Starting Simple SLAM Node..."
+echo "[4/5] Starting Simple SLAM Node..."
 python3 simple_slam.py &
 SLAM_PID=$!
+
+sleep 1
+
+echo "[5/5] Starting Coverage Mapping Node..."
+python3 coverage_node.py &
+COVERAGE_PID=$!
 
 echo ""
 echo "=== All processes started ==="
