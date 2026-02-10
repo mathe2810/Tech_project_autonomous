@@ -6,6 +6,7 @@
 #include <rclc/executor.h>
 #include <sensor_msgs/msg/laser_scan.h>
 #include <sensor_msgs/msg/imu.h>
+#include <geometry_msgs/msg/twist.h>
 #include <rmw_microros/rmw_microros.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -14,6 +15,8 @@
 #include <MPU6050.h>
 #include <cmath>
 #include <atomic>
+#include "config.h"
+#include "motors.h"
 
 #define WIFI_SSID "iPhone (3)"
 #define WIFI_PASSWORD "Dr69qf76&*"
@@ -433,6 +436,9 @@ void setup() {
   } else {
     Serial.println("\n[WiFi] FAIL");
   }
+  
+  // Initialize motors AFTER WiFi (non-critical, won't block)
+  motors_init();
   
   set_microros_wifi_transports(WIFI_SSID, WIFI_PASSWORD, AGENT_IP, AGENT_PORT);
   state = WAITING_AGENT;
