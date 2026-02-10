@@ -8,21 +8,35 @@
 #if ENABLE_MOTORS
 
 void motors_init() {
+    Serial.println("[MOTORS] Init start");
+    delay(100);  // Safety delay
+    
     // Configuration des pins moteur gauche
     pinMode(MOTOR_LEFT_DIR1, OUTPUT);
     pinMode(MOTOR_LEFT_DIR2, OUTPUT);
-    ledcSetup(PWM_CHANNEL_LEFT, PWM_FREQ, PWM_RESOLUTION);
-    ledcAttachPin(MOTOR_LEFT_PWM, PWM_CHANNEL_LEFT);
+    digitalWrite(MOTOR_LEFT_DIR1, LOW);
+    digitalWrite(MOTOR_LEFT_DIR2, LOW);
     
     // Configuration des pins moteur droit
     pinMode(MOTOR_RIGHT_DIR1, OUTPUT);
     pinMode(MOTOR_RIGHT_DIR2, OUTPUT);
+    digitalWrite(MOTOR_RIGHT_DIR1, LOW);
+    digitalWrite(MOTOR_RIGHT_DIR2, LOW);
+    
+    delay(50);
+    
+    // Setup PWM channels
+    ledcSetup(PWM_CHANNEL_LEFT, PWM_FREQ, PWM_RESOLUTION);
+    ledcAttachPin(MOTOR_LEFT_PWM, PWM_CHANNEL_LEFT);
+    ledcWrite(PWM_CHANNEL_LEFT, 0);
+    
+    delay(50);
+    
     ledcSetup(PWM_CHANNEL_RIGHT, PWM_FREQ, PWM_RESOLUTION);
     ledcAttachPin(MOTOR_RIGHT_PWM, PWM_CHANNEL_RIGHT);
+    ledcWrite(PWM_CHANNEL_RIGHT, 0);
     
-    // Arrêt initial
-    motors_stop();
-    
+    delay(50);
     Serial.println("[MOTORS] Initialized");
 }
 
@@ -96,24 +110,8 @@ void motors_drive(int throttle, int steering) {
     leftSpeed = constrain(leftSpeed, -MAX_SPEED, MAX_SPEED);
     rightSpeed = constrain(rightSpeed, -MAX_SPEED, MAX_SPEED);
     
-    // Debug: afficher les commandes moteur
-    static unsigned long lastDebug = 0;
-    if (millis() - lastDebug > 500 && (throttle != 0 || steering != 0)) {
-        Serial.printf("[MOTORS] Thr:%d Ste:%d → L:%d R:%d\n", 
-                     throttle, steering, leftSpeed, rightSpeed);
-        lastDebug = millis();
-    }
-    
     motor_left(leftSpeed);
     motor_right(rightSpeed);
 }
 
-#else
-
-// Stubs quand moteurs désactivés
-void motors_init() { Serial.println("[MOTORS] Skipped init (disabled)"); }
-void motor_left(int) {}
-void motor_right(int) {}
-void motors_stop() {}
-void motors_drive(int, int) {}
 #endif

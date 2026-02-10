@@ -15,8 +15,6 @@
 #include <MPU6050.h>
 #include <cmath>
 #include <atomic>
-#include "config.h"
-#include "motors.h"
 
 #define WIFI_SSID "iPhone (3)"
 #define WIFI_PASSWORD "Dr69qf76&*"
@@ -29,12 +27,14 @@
 #define PTS_PER_FRAME 12
 
 rcl_publisher_t pub_lidar, pub_imu;
+rcl_subscription_t sub_cmd_vel;  // Independent subscriber, NOT in executor
 rcl_node_t node;
 rclc_support_t support;
 rcl_allocator_t allocator;
 rclc_executor_t executor;
 sensor_msgs__msg__LaserScan msg_lidar;
 sensor_msgs__msg__Imu msg_imu;
+geometry_msgs__msg__Twist msg_cmd_vel;
 
 enum states { WAITING_AGENT, AGENT_CONNECTED, AGENT_DISCONNECTED } state;
 static volatile bool agent_connected = false;
@@ -138,6 +138,10 @@ bool create_entities() {
   if (rclc_publisher_init_default(&pub_imu, &node,
       ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu), "/imu/data") != RCL_RET_OK) return false;
   
+  // Create independent cmd_vel subscriber (NOT added to executor to avoid interference)
+  if (rclc_subscription_init_default(&sub_cmd_vel, &node,
+      ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist), "/cmd_vel") != RCL_RET_OK) return false;
+  
   executor = rclc_executor_get_zero_initialized_executor();
   if (rclc_executor_init(&executor, &support.context, 1, &allocator) != RCL_RET_OK) return false;
   
@@ -156,6 +160,7 @@ bool create_entities() {
 void destroy_entities() {
   rcl_publisher_fini(&pub_lidar, &node);
   rcl_publisher_fini(&pub_imu, &node);
+  rcl_subscription_fini(&sub_cmd_vel, &node);  // Clean up independent subscriber
   rcl_node_fini(&node);
   rclc_executor_fini(&executor);
   rclc_support_fini(&support);
@@ -437,9 +442,6 @@ void setup() {
     Serial.println("\n[WiFi] FAIL");
   }
   
-  // Initialize motors AFTER WiFi (non-critical, won't block)
-  motors_init();
-  
   set_microros_wifi_transports(WIFI_SSID, WIFI_PASSWORD, AGENT_IP, AGENT_PORT);
   state = WAITING_AGENT;
 }
@@ -496,6 +498,19 @@ void loop() {
       }
       
       rclc_executor_spin_some(&executor, RCL_MS_TO_NS(5));
+      
+      // Check for cmd_vel messages independently (non-blocking, every 10ms)
+      static uint32_t last_cmd_check = 0;
+      if(millis() - last_cmd_check >= 10) {
+        rmw_message_info_t info;
+        if(rcl_take(&sub_cmd_vel, &msg_cmd_vel, &info, nullptr) == RCL_RET_OK) {
+          float linear_x = msg_cmd_vel.linear.x;
+          float angular_z = msg_cmd_vel.angular.z;
+          Serial.printf("[CMD_VEL] rx: %.2f, rz: %.2f\n", linear_x, angular_z);
+        }
+        last_cmd_check = millis();
+      }
+      
       vTaskDelay(pdMS_TO_TICKS(1));
       break;
       
