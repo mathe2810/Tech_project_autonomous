@@ -42,8 +42,17 @@ def generate_launch_description():
         name='imu_kalman_filter'
     )
     
+    # 4. Scan Accumulator node (720 points from 60 frames)
+    scan_accumulator = Node(
+        package='cpp_pubsub',
+        executable='scan_accumulator.py',
+        output='screen',
+        name='scan_accumulator'
+    )
+    
     return LaunchDescription([
         agent,
         rviz,
         imu_filter,
+        scan_accumulator,
     ])
