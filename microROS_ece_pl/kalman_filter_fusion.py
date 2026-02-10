@@ -71,7 +71,7 @@ class ExtendedKalmanFilter2D:
             self.x[1] = y + vx * math.sin(theta) * dt
         
         self.x[2] = theta + wz * dt
-        self._normalize_angle()
+        self.x[2] = self._normalize_angle_value(self.x[2])
         
         # Compute Jacobian for covariance update
         F = self._jacobian_F(vx, wz, dt)
@@ -314,25 +314,27 @@ class KalmanFilterFusionNode(Node):
         odom.twist.twist.angular.y = 0.0
         odom.twist.twist.angular.z = self.wz
         
-        # Simple twist covariance
-        odom.twist.covariance = [0.1, 0, 0, 0, 0, 0,
-                                 0, 0.1, 0, 0, 0, 0,
-                                 0, 0, 0.1, 0, 0, 0,
-                                 0, 0, 0, 0.05, 0, 0,
-                                 0, 0, 0, 0, 0.05, 0,
-                                 0, 0, 0, 0, 0, 0.05]
+        # Twist covariance (must be tuple of 36 floats)
+        odom.twist.covariance = tuple(float(v) for v in [0.1, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                                          0.0, 0.1, 0.0, 0.0, 0.0, 0.0,
+                                                          0.0, 0.0, 0.1, 0.0, 0.0, 0.0,
+                                                          0.0, 0.0, 0.0, 0.05, 0.0, 0.0,
+                                                          0.0, 0.0, 0.0, 0.0, 0.05, 0.0,
+                                                          0.0, 0.0, 0.0, 0.0, 0.0, 0.05])
         
         self.odom_filtered_pub.publish(odom)
     
     def _set_pose_covariance(self, kf_cov, odom):
         """Convert KF covariance to ROS format"""
-        cov = [0.0] * 36
+        # Create 36-element tuple of floats (ROS requirement)
+        cov = tuple(float(0.0) for _ in range(36))
+        cov_list = list(cov)
         # Position (x, y, z)
-        cov[0] = float(kf_cov[0, 0])  # x
-        cov[7] = float(kf_cov[1, 1])  # y
-        cov[14] = 0.1  # z (not estimated)
-        cov[35] = float(kf_cov[2, 2])  # yaw
-        odom.pose.covariance = cov
+        cov_list[0] = float(kf_cov[0, 0])  # x
+        cov_list[7] = float(kf_cov[1, 1])  # y
+        cov_list[14] = float(0.1)  # z (not estimated)
+        cov_list[35] = float(kf_cov[2, 2])  # yaw
+        odom.pose.covariance = tuple(float(v) for v in cov_list)
     
     def _publish_tf(self, timestamp):
         """Publish corrected transform"""

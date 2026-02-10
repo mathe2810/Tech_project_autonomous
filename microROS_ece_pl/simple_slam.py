@@ -22,8 +22,8 @@ class SimpleSLAM(Node):
         super().__init__('simple_slam')
         
         # Parameters
-        self.declare_parameter('grid_size', 50)  # 50x50 meters
-        self.declare_parameter('resolution', 0.1)  # 10cm per cell
+        self.declare_parameter('grid_size', 5)  # 5x5 meters (bigger circuit)
+        self.declare_parameter('resolution', 0.05)  # 5cm per cell (100x100 cells = 5x5m)
         self.declare_parameter('max_range', 12.0)  # LIDAR max range
         
         self.grid_size = self.get_parameter('grid_size').value
@@ -32,7 +32,7 @@ class SimpleSLAM(Node):
         
         # Internal state
         self.scan_history = []
-        self.max_scans = 100  # Keep last 100 scans
+        self.max_scans = 30  # Keep last 30 scans only (faster matching)
         self.robot_pose = np.array([0.0, 0.0, 0.0])  # x, y, theta
         self.poses = [self.robot_pose.copy()]
         
@@ -48,6 +48,10 @@ class SimpleSLAM(Node):
         # Transform broadcaster
         self.tf_broadcaster = TransformBroadcaster(self)
         
+        # Timer pour publier la map à 10Hz
+        self.create_timer(0.1, self.timer_callback)
+        self.last_timestamp = None
+        
         # Subscriber
         self.sub_scan = self.create_subscription(
             LaserScan,
@@ -60,6 +64,8 @@ class SimpleSLAM(Node):
         
     def scan_callback(self, msg: LaserScan):
         """Process incoming LIDAR scan"""
+        self.last_timestamp = msg.header.stamp  # Mémorise le timestamp
+        
         # Convert polar coordinates to cartesian
         points = self.scan_to_points(msg)
         
@@ -67,6 +73,10 @@ class SimpleSLAM(Node):
             # Estimate motion using scan matching (ICP-like)
             prev_points = self.scan_history[-1]['points']
             dx, dy, dtheta = self.estimate_motion(prev_points, points)
+            
+            # Ignore tiny motions (noise threshold)
+            if abs(dx) < 0.01 and abs(dy) < 0.01 and abs(dtheta) < 0.02:
+                dx, dy, dtheta = 0, 0, 0
             
             # Update robot pose
             self.robot_pose[2] += dtheta
@@ -91,10 +101,7 @@ class SimpleSLAM(Node):
         # Update occupancy grid with all scans
         self.update_occupancy_grid()
         
-        # Publish results
-        self.publish_map(msg.header.stamp)
-        self.publish_pose(msg.header.stamp)
-        self.publish_transforms(msg.header.stamp)
+        # Timestamp will be published by timer at 10Hz
         
     def scan_to_points(self, scan: LaserScan):
         """Convert LaserScan message to 2D points (x, y)"""
@@ -222,11 +229,11 @@ class SimpleSLAM(Node):
         self.pub_pose.publish(msg)
     
     def publish_transforms(self, timestamp):
-        """Publish map -> base_link transform"""
+        """Publish map -> odom transform"""
         t = TransformStamped()
         t.header.stamp = timestamp
         t.header.frame_id = 'map'
-        t.child_frame_id = 'base_link'
+        t.child_frame_id = 'odom'
         
         t.transform.translation.x = float(self.robot_pose[0])
         t.transform.translation.y = float(self.robot_pose[1])
@@ -239,6 +246,13 @@ class SimpleSLAM(Node):
         t.transform.rotation.w = quat[3]
         
         self.tf_broadcaster.sendTransform(t)
+
+    def timer_callback(self):
+        """Publie la map à 10Hz"""
+        if self.last_timestamp is not None:
+            self.publish_map(self.last_timestamp)
+            self.publish_pose(self.last_timestamp)
+            self.publish_transforms(self.last_timestamp)
 
 
 def main(args=None):

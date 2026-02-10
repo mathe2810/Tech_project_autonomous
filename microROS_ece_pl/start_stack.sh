@@ -1,5 +1,7 @@
 #!/bin/bash
 # Startup script - Démarre le stack de navigation complet
+# NOTE: Does NOT restart micro_ros_agent (ESP32 connection stays alive)
+#       Only restarts ROS2 nodes (motor_odom, imu_filter, slam, kalman_fusion)
 
 set -e
 
@@ -8,23 +10,26 @@ source /opt/ros/humble/setup.bash
 source /home/matheo/microros_ece_ws/install/setup.bash
 
 echo "=== Starting ROS2 Navigation Stack (Localisation + SLAM + Nav2) ==="
+echo "NOTE: Micro-ROS Agent NOT restarted (ESP32 connection preserved)"
 
-# Kill any previous instances
-pkill -f "micro_ros_agent" || true
+# Kill only ROS2 nodes (NOT the agent!)
 pkill -f "rviz2" || true
 pkill -f "motor_odom" || true
-pkill -f "imu_kalman_filter" || true
+pkill -f "imu_fir_filter" || true
 pkill -f "simple_slam" || true
 pkill -f "kalman_filter_fusion" || true
 
 sleep 1
 
-# Start processes in background
-echo "[1/6] Starting Micro-ROS Agent on port 8888..."
-ros2 run micro_ros_agent micro_ros_agent udp4 --port 8888 &
-AGENT_PID=$!
-
-sleep 2
+# Check if agent is running
+if ! pgrep -f "micro_ros_agent" > /dev/null; then
+  echo "[1/6] Starting Micro-ROS Agent on port 8888..."
+  ros2 run micro_ros_agent micro_ros_agent udp4 --port 8888 &
+  AGENT_PID=$!
+  sleep 2
+else
+  echo "[1/6] Micro-ROS Agent already running ✓"
+fi
 
 echo "[2/6] Starting RViz2..."
 rviz2 &
