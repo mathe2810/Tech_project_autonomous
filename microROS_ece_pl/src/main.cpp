@@ -15,6 +15,7 @@
 #include <MPU6050.h>
 #include <cmath>
 #include <atomic>
+#include "../motor_control.h"
 
 #define WIFI_SSID "iPhone (3)"
 #define WIFI_PASSWORD "Dr69qf76&*"
@@ -134,7 +135,7 @@ bool create_entities() {
   if (rclc_node_init_default(&node, "esp32_rover", "", &support) != RCL_RET_OK) return false;
   
   if (rclc_publisher_init_default(&pub_lidar, &node,
-      ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, LaserScan), "/scan") != RCL_RET_OK) return false;
+      ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, LaserScan), "/scan_raw") != RCL_RET_OK) return false;
   if (rclc_publisher_init_default(&pub_imu, &node,
       ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu), "/imu/data") != RCL_RET_OK) return false;
   
@@ -442,6 +443,8 @@ void setup() {
     Serial.println("\n[WiFi] FAIL");
   }
   
+  // Initialize motors
+  motor_init();
   set_microros_wifi_transports(WIFI_SSID, WIFI_PASSWORD, AGENT_IP, AGENT_PORT);
   state = WAITING_AGENT;
 }
@@ -507,6 +510,9 @@ void loop() {
           float linear_x = msg_cmd_vel.linear.x;
           float angular_z = msg_cmd_vel.angular.z;
           Serial.printf("[CMD_VEL] rx: %.2f, rz: %.2f\n", linear_x, angular_z);
+          
+          // Apply motor control
+          motor_control(linear_x, angular_z);
         }
         last_cmd_check = millis();
       }
