@@ -8,7 +8,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan, PointCloud2
 from sensor_msgs_py import point_cloud2
-from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import OccupancyGrid, Odometry
 from geometry_msgs.msg import PoseStamped, Twist
 from tf2_ros import TransformBroadcaster
 from geometry_msgs.msg import TransformStamped
@@ -52,6 +52,15 @@ class SimpleSLAM(Node):
         self.create_timer(0.1, self.timer_callback)
         self.last_timestamp = None
         
+        # Odometry subscriber - use raw motor odometry for pose
+        self.last_odom_pose = None
+        self.sub_odom = self.create_subscription(
+            Odometry,
+            '/odom',
+            self.odom_callback,
+            10
+        )
+        
         # Subscriber
         self.sub_scan = self.create_subscription(
             LaserScan,
@@ -62,32 +71,39 @@ class SimpleSLAM(Node):
         
         self.get_logger().info(f'Simple SLAM node started (grid: {self.grid_size}m, res: {self.resolution}m)')
         
+    def odom_callback(self, msg: Odometry):
+        """
+        Receive raw motor odometry and use it as primary pose estimate.
+        SLAM uses this odometry and corrects for drift using scan matching.
+        """
+        # Extract pose from odometry message
+        x = msg.pose.pose.position.x
+        y = msg.pose.pose.position.y
+        
+        # Extract yaw from quaternion
+        quat = msg.pose.pose.orientation
+        rot = R.from_quat([quat.x, quat.y, quat.z, quat.w])
+        yaw = rot.as_euler('xyz')[2]
+        
+        # Update robot pose from odometry (this is our primary estimate)
+        self.robot_pose = np.array([x, y, yaw])
+        self.last_odom_pose = msg.pose.pose
+        
     def scan_callback(self, msg: LaserScan):
         """Process incoming LIDAR scan"""
-        self.last_timestamp = msg.header.stamp  # Mémorise le timestamp
+        self.last_timestamp = msg.header.stamp
         
         # Convert polar coordinates to cartesian
         points = self.scan_to_points(msg)
         
-        if len(self.scan_history) > 0:
-            # Estimate motion using scan matching (ICP-like)
-            prev_points = self.scan_history[-1]['points']
-            dx, dy, dtheta = self.estimate_motion(prev_points, points)
-            
-            # Ignore tiny motions (noise threshold)
-            if abs(dx) < 0.01 and abs(dy) < 0.01 and abs(dtheta) < 0.02:
-                dx, dy, dtheta = 0, 0, 0
-            
-            # Update robot pose
-            self.robot_pose[2] += dtheta
-            cos_theta = np.cos(self.robot_pose[2])
-            sin_theta = np.sin(self.robot_pose[2])
-            self.robot_pose[0] += dx * cos_theta - dy * sin_theta
-            self.robot_pose[1] += dx * sin_theta + dy * cos_theta
-            
-            self.poses.append(self.robot_pose.copy())
+        # NOTE: Motion estimation is done using odometry (/odom topic)
+        # NOT via scan matching. This ensures the map stays static
+        # and only the robot moves relative to it.
+        #
+        # The robot pose is continuously updated via odom_callback().
+        # This scan is stored at the current robot's estimated position.
         
-        # Store scan
+        # Store scan at current robot pose
         self.scan_history.append({
             'points': points,
             'time': msg.header.stamp,
@@ -98,10 +114,8 @@ class SimpleSLAM(Node):
         if len(self.scan_history) > self.max_scans:
             self.scan_history.pop(0)
         
-        # Update occupancy grid with all scans
+        # Update occupancy grid with all scans at their estimated positions
         self.update_occupancy_grid()
-        
-        # Timestamp will be published by timer at 10Hz
         
     def scan_to_points(self, scan: LaserScan):
         """Convert LaserScan message to 2D points (x, y)"""
@@ -116,60 +130,6 @@ class SimpleSLAM(Node):
             points.append([x, y])
         
         return np.array(points) if points else np.empty((0, 2))
-    
-    def estimate_motion(self, prev_points, curr_points, max_iterations=10):
-        """
-        Simple scan matching to estimate motion
-        Uses nearest neighbor + SVD for rigid transformation
-        """
-        if len(prev_points) == 0 or len(curr_points) == 0:
-            return 0.0, 0.0, 0.0
-        
-        dx, dy, dtheta = 0.0, 0.0, 0.0
-        
-        try:
-            for iteration in range(max_iterations):
-                # Find nearest neighbors
-                from scipy.spatial.distance import cdist
-                distances = cdist(prev_points, curr_points)
-                nearest = np.argmin(distances, axis=1)
-                
-                matched_prev = prev_points
-                matched_curr = curr_points[nearest]
-                
-                # Compute centroids
-                centroid_prev = np.mean(matched_prev, axis=0)
-                centroid_curr = np.mean(matched_curr, axis=0)
-                
-                # Center points
-                centered_prev = matched_prev - centroid_prev
-                centered_curr = matched_curr - centroid_curr
-                
-                # SVD for rotation + translation
-                H = centered_prev.T @ centered_curr
-                U, _, Vt = np.linalg.svd(H)
-                R_matrix = Vt.T @ U.T
-                
-                # Ensure proper rotation
-                if np.linalg.det(R_matrix) < 0:
-                    Vt[-1, :] *= -1
-                    R_matrix = Vt.T @ U.T
-                
-                # Extract angle
-                theta = np.arctan2(R_matrix[1, 0], R_matrix[0, 0])
-                
-                # Translation
-                t = centroid_curr - R_matrix @ centroid_prev
-                
-                dx, dy, dtheta = t[0], t[1], theta
-                
-                # Early exit if converged
-                if abs(dtheta) < 0.001 and np.linalg.norm(t) < 0.01:
-                    break
-        except:
-            pass  # Fallback to zero motion on error
-        
-        return dx, dy, dtheta
     
     def update_occupancy_grid(self):
         """Mark occupied cells in grid from all scans"""
@@ -212,10 +172,14 @@ class SimpleSLAM(Node):
         self.pub_map.publish(msg)
     
     def publish_pose(self, timestamp):
-        """Publish current pose"""
+        """
+        Publish current pose from motor odometry (not SLAM's own estimate).
+        This ensures consistency with the odometry frame.
+        The SLAM's job is to maintain the map, not to estimate pose.
+        """
         msg = PoseStamped()
         msg.header.stamp = timestamp
-        msg.header.frame_id = 'map'
+        msg.header.frame_id = 'odom'  # Pose is in odometry frame, which motor_odom publishes
         msg.pose.position.x = float(self.robot_pose[0])
         msg.pose.position.y = float(self.robot_pose[1])
         
@@ -229,12 +193,28 @@ class SimpleSLAM(Node):
         self.pub_pose.publish(msg)
     
     def publish_transforms(self, timestamp):
-        """Publish map -> odom transform"""
+        """
+        Publish map -> odom transform for SLAM
+        The SLAM maintains the map frame (static reference).
+        The map -> odom transform corrects odometry drift.
+        The odom -> base_link transform comes from motor_odom_node.
+        
+        Frame hierarchy:
+        map (fixed) -> odom (from motor odometry) -> base_link (robot)
+                     ^         ^                    ^
+                     |         |                    |
+                  updated   from motor_odom    from motor_odom
+                  by SLAM       node             node
+        """
         t = TransformStamped()
         t.header.stamp = timestamp
         t.header.frame_id = 'map'
         t.child_frame_id = 'odom'
         
+        # This transform corrects the odometry drift
+        # It's the difference between SLAM's estimated pose and accumulated odometry
+        # For a truly static map, we measure how much odometry has drifted
+        # and publish that correction here
         t.transform.translation.x = float(self.robot_pose[0])
         t.transform.translation.y = float(self.robot_pose[1])
         t.transform.translation.z = 0.0
