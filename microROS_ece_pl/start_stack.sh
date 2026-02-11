@@ -16,6 +16,7 @@ echo "NOTE: Micro-ROS Agent NOT restarted (ESP32 connection preserved)"
 pkill -f "rviz2" || true
 pkill -f "motor_odom" || true
 pkill -f "imu_fir_filter" || true
+pkill -f "slam_v2" || true
 pkill -f "simple_slam" || true
 pkill -f "kalman_filter_fusion" || true
 
@@ -53,8 +54,8 @@ MOTOR_ODOM_PID=$!
 
 sleep 1
 
-echo "[5/6] Starting Simple SLAM Node..."
-python3 simple_slam.py &
+echo "[5/6] Starting SLAM v2 Node (Filtered Scan Accumulation)..."
+python3 slam_v2.py &
 SLAM_PID=$!
 
 sleep 1
