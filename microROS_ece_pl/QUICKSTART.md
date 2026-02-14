@@ -1,246 +1,241 @@
-# 🚀 Quick Start - Multithreading LIDAR + micro_ros
+# 🚀 Quick Start - Autonomous Navigation with SLAM
+
+**Démarrer le système de mapping et navigation autonome avec SLAM Toolbox, micro-ROS et ROS2 Humble.**
 
 ## ⚡ 5 Minutes Setup
 
-### 1. **Vérifier la Configuration**
+### 1️⃣ **Vérifier Hardware**
 
-```cpp
-// platformio.ini - Vérifier que c'est configuré
-[env:esp32dev]
-board_microros_transport = wifi
-board_microros_distro = humble
-lib_deps = https://github.com/micro-ROS/micro_ros_platformio
-build_flags = 
-    -DMICRO_ROS_TRANSPORT_ARDUINO_WIFI
-    -DBOARD_HAS_PSRAM
-    -mfix-esp32-psram-cache-issue
+```
+ESP32                   LIDAR LD06            Motor Driver
+─────────────────────────────────────────────────────────
+GPIO16 (UART RX2) ←─── TX (LaserScan)
+GPIO25 (PWM) ─────────→ M_SCTR (Motor control)
+GPIO32, GPIO33 ───────→ Motor encoder inputs
+GPIO23, GPIO19 ───────→ Motor PWM outputs (L298N)
+GND ──────────────────→ GND
+5V ───────────────────→ VCC
+
+IMU MPU6050:
+GPIO21 (SDA) ──────── SDA
+GPIO22 (SCL) ──────── SCL
+GND ──────────────── GND
+3.3V ────────────── VCC
 ```
 
-### 2. **Compiler et Uploader**
+### 2️⃣ **Compiler et Télécharger Firmware ESP32**
 
+**Option A: PlatformIO CLI**
 ```bash
-# Option 1: PlatformIO CLI
+cd /home/matheo/microros_ece_ws/src/micro_ros_setup/microROS_ece_pl
 pio run -e esp32dev -t upload
-
-# Option 2: VS Code
-# - Clic droit sur main.cpp
-# - Upload
-
-# Monitor les logs
-pio device monitor -b 115200
+pio device monitor -b 115200  # Voir les logs
 ```
 
-### 3. **Branchement LIDAR**
+**Option B: VS Code**
+- Clic droit sur `src/main.cpp`
+- "PlatformIO: Upload"
 
-```
-ESP32           LD06 LIDAR
-─────────────────────────
-GPIO16 (RX2) ←  TX
-GPIO25 (PWM) →  M_SCTR
-GND          →  GND
-5V           →  VCC
-```
-
-### 4. **Démarrer Agent micro_ros**
+### 3️⃣ **Démarrer l'Agent micro-ROS**
 
 ```bash
-# Terminal 1: Docker container
-docker run -it --rm \
-  -v /dev:/dev --privileged \
+# Terminal 1 - Docker agent (port 8888)
+docker run -it --rm -v /dev:/dev --privileged \
   microros/micro-ros-docker:humble \
   ros2 run micro_ros_agent micro_ros_agent udp4 \
   --ip 0.0.0.0 --port 8888
 ```
 
-### 5. **Vérifier la Connexion**
+✅ Vous devriez voir: `[INFO] [UDPv4AgentLinux]: Client connected from IP 172.20.10.x`
+
+### 4️⃣ **Démarrer la Stack ROS2**
 
 ```bash
-# Terminal 2: Écouter les topics
+# Terminal 2 - Démarrer tous les nœuds
+cd /home/matheo/microros_ece_ws/src/micro_ros_setup/microROS_ece_pl
+chmod +x start_stack.sh
+./start_stack.sh
+```
+
+**Qu'est-ce qui se lance:**
+1. ✅ Micro-ROS Agent (vérifie si connecté)
+2. ✅ RViz2 (visualisation)
+3. ✅ IMU FIR Filter (lisse les vibrations LIDAR)
+4. ✅ Motor Odometry Node (estime la position du robot)
+5. ✅ Scan Restamper (corrige les timestamps)
+6. ✅ SLAM Toolbox (construit la carte)
+7. ✅ Simple EKF (fusionne odom + IMU)
+
+### 5️⃣ **Vérifier les Topics**
+
+```bash
+# Terminal 3 - Lister les topics actifs
 ros2 topic list
 
 # Devrait afficher:
-# /data      (compteur Int32)
-# /scan      (LIDAR LaserScan)
+/odom                   # Odométrie moteur
+/odom_filtered          # Odométrie fusionnée (odom + IMU)
+/scan                   # Scans LIDAR (restampés)
+/scan_raw              # Scans bruts (avant restampage)
+/imu/data              # IMU brut
+/imu/data_filtered     # IMU lissé
+/map                   # Carte SLAM (occupancy grid)
+/tf                    # Transformations
+/cmd_vel               # Commandes de mouvement
 ```
 
-### 6. **Visualiser les Données**
+### 6️⃣ **Contrôler le Robot**
 
 ```bash
-# Terminal 3: Voir compteur
-ros2 topic echo /data
-
-# Terminal 4: Voir scan LIDAR
-ros2 topic echo /scan --max-count=5
-
-# Terminal 5: RViz pour visualisation
-rviz2
-
-# Ajouter:
-# - Fixed Frame: lidar_link
-# - LaserScan (/scan)
+# Terminal 4 - Clavier (WASD)
+cd /home/matheo/microros_ece_ws/src/micro_ros_setup/microROS_ece_pl
+python3 teleop_keyboard.py
 ```
 
-## 📋 Checklist de Vérification
+**Touches:**
+- **W** = Avancer (0.3 m/s)
+- **A** = Tourner à gauche (1.5 rad/s)
+- **S** = Reculer (-0.3 m/s)
+- **D** = Tourner à droite (-1.5 rad/s)
+- **Space** = Stop
+- **Q** = Quitter
 
-### Hardware
-- [ ] ESP32 connecté via USB
-- [ ] LIDAR connecté (UART GPIO16 + PWM GPIO25)
-- [ ] 5V/GND sur ESP32 ✓
-- [ ] Alimentation LIDAR 5V ✓
+### 7️⃣ **Voir la Carte en RViz**
 
-### Software
-- [ ] PlatformIO installé
-- [ ] micro_ros_platformio library ✓
-- [ ] Docker + micro_ros_agent prêt
+1. **Ouvrir RViz** (lancé automatiquement par start_stack.sh)
+2. **Fixed Frame** → `map`
+3. **Add Display** → ajouter:
+   - ✅ **Map** (topic: `/map`)
+   - ✅ **LaserScan** (topic: `/scan`)
+   - ✅ **Odometry** (topic: `/odom_filtered`)
+   - ✅ **TF** (pour les frames)
 
-### Compilation
-- [ ] `pio run` sans erreurs
-- [ ] Upload réussi
-- [ ] Serial logs visibles
+**Vous devriez voir:**
+- 🔵 Robot bleu au centre
+- 🟩 Grille grise (carte occupée)
+- 🔴 Points rouges (scans LIDAR)
+- 🟦 Flèche (direction robot)
 
-### ROS2 Connection
-- [ ] WiFi ESP32 conecté à réseau
-- [ ] Agent micro_ros listening sur UDP8888
-- [ ] `ros2 topic list` affiche /data et /scan
-- [ ] Messages arrivent (vérifier avec `echo`)
+---
 
-## 🔍 Troubleshooting
-
-### Problem: "LIDAR not publishing"
+## 🧪 Test Automatisé
 
 ```bash
-# Solution 1: Vérifier logs serial
+# Envoyer des commandes de test (avancer → rotation → stop)
+python3 test_movement.py
+```
+
+Vérifiez que:
+- ✅ Position change: `ros2 topic echo /odom`
+- ✅ Scans s'accumulent: RViz montre plus de points
+- ✅ Carte se met à jour: `/map` change
+
+---
+
+## 🔧 Troubleshooting
+
+### ❌ Topic `/map` n'existe pas
+```bash
+# Vérifier que SLAM est lancé
+ros2 topic list | grep map
+ros2 topic hz /map  # Devrait voir 1Hz
+```
+
+**Solution:** Vérifier que `/scan` est publié (restamper doit tourner)
+
+### ❌ Scans ne s'accumulent pas en RViz
+```bash
+# Vérifier timestamp des scans
+ros2 topic echo /scan --max-count=1 | grep stamp
+```
+
+**Solution:** Timestamp doit être le temps actuel, pas 8000+ sec
+
+### ❌ Robot ne se déplace pas
+```bash
+# Envoyer test_movement.py et vérifier /odom
+ros2 topic echo /odom --max-count=1
+```
+
+**Solution:** Motor odometry nécessite `/cmd_vel` pour bouger
+
+### ❌ Pas de connexion micro-ROS
+```bash
+# Vérifier l'ESP32
 pio device monitor -b 115200
-# Chercher "[LIDAR] Tâche démarrée"
 
-# Solution 2: Vérifier CRC
-# Si beaucoup d'erreurs CRC:
-# - Vérifier câble UART
-# - Essayer baud 115200 au lieu 230400
-
-# Solution 3: Vérifier UART
-# - GPIO16 = RX2 ✓
-# - Pas de conflit pin
+# Redémarrer l'agent
+pkill -f micro_ros_agent
+docker run -it --rm ... ros2 run micro_ros_agent ...
 ```
-
-### Problem: "WiFi connects but no ROS messages"
-
-```bash
-# Solution 1: Vérifier agent
-# Terminal 1 - Agent doit afficher:
-# [INFO] Client initialized
-
-# Solution 2: Vérifier IP ESP32
-# Serial logs: [WiFi] IP locale: XXX.XXX.X.X
-
-# Solution 3: Firewall
-# Si derrière firewall: ouvrir port 8888 UDP
-```
-
-### Problem: "micro_ros libraries not found"
-
-```bash
-# Solution: Forcer mise à jour libraries
-pio lib update
-pio pkg install
-pio run -e esp32dev --verbose
-```
-
-## 📊 Expected Output
-
-### Serial Monitor
-```
-=== SETUP START ===
-[LIDAR] Tâche démarrée sur cœur 1
-[WiFi] Connecting to iPhone (3)...
-[WiFi] IP locale: 192.168.x.x
-[STATE] Waiting for agent...
-[AGENT] Agent found! Connecting...
-[OK] ROS Entities created!
-[STATE] CONNECTED!
-[PUBLISH OK] Counter: 0
-[LIDAR PUBLISH OK] Distance: 320mm, Angle: 45°, Conf: 200
-```
-
-### ROS2 Topic Echo
-```bash
-$ ros2 topic echo /data
----
-data: 0
----
-data: 1
----
-data: 2
-
-$ ros2 topic echo /scan
----
-header:
-  stamp:
-    sec: 5
-    nanosec: 234000000
-  frame_id: lidar_link
-angle_min: 0.0
-angle_max: 6.283185
-...
-ranges: [0.32, 0.35, 0.38, ...]
-```
-
-## 🎯 Cas d'Utilisation
-
-### 1. Navigation Robot Autonome
-```cpp
-// Subscriber: /scan
-// Decision: Obstacle avant? → Stop moteurs
-if(laser_scan.ranges[0] < 0.5) {
-    motor_forward = 0;
-}
-```
-
-### 2. Cartographie (SLAM)
-```cpp
-// Publier /scan + /odom
-// Utiliser: ros2_humble + Cartographer
-ros2 launch cartographer_ros cartographer_offline_node.launch.py
-```
-
-### 3. Évitement d'Obstacles
-```cpp
-// Combiner /scan + /cmd_vel
-if(obstacle_detected()) {
-    rotate(90°);
-}
-```
-
-## 📚 Ressources
-
-| Resource | URL |
-|----------|-----|
-| micro_ros Docs | https://docs.micro-ros.org/ |
-| PlatformIO Docs | https://docs.platformio.org/ |
-| ROS2 Humble | https://docs.ros.org/en/humble/ |
-| LD06 Datasheet | https://www.ydlidar.com/ld06/ |
-| FreeRTOS ESP32 | https://esp-idf.readthedocs.io/en/latest/esp32/api-reference/system/freertos.html |
-
-## 🎓 Prochaines Étapes
-
-1. **Ring Buffer** - Implémenter 8000 points historique
-2. **PID Motor Control** - Contrôler vitesse rotation plateau
-3. **Obstacle Detection** - Alerte automatique <50cm
-4. **Web GUI** - Interface radar temps-réel
-5. **SLAM Integration** - Cartographie autonome
-
-## 📞 Support
-
-Erreurs rencontrées? Créer issue avec:
-- [ ] Logs sérial complets
-- [ ] Output `pio run -v`
-- [ ] Output `ros2 topic list`
-- [ ] Version ESP32 board
-- [ ] Version PlatformIO
 
 ---
 
-**Happy Coding!** 🚀🤖
+## 📊 Topics et Frames Hierarchy
 
-**Auteur**: GitHub Copilot  
-**Date**: 2026-01-19
+```
+map (frame de la carte SLAM)
+├── odom (frame odométrie)
+│   └── base_link (cadre robot)
+│       └── laser_link (LIDAR)
+└── imu_link (IMU)
+
+Topics Key:
+/scan          → LaserScan (LIDAR, 10Hz)
+/odom          → Odometry (moteur, 50Hz)
+/odom_filtered → Odometry (fusionnée, 50Hz)
+/imu/data      → Imu (100Hz brut)
+/imu/data_filtered → Imu (100Hz lissé)
+/map           → OccupancyGrid (SLAM, 1Hz)
+/tf            → Transformations dynamiques
+/cmd_vel       → Twist (commandes moteur)
+```
+
+---
+
+## 📝 Checklist de Démarrage
+
+- [ ] ESP32 compilé et téléchargé
+- [ ] LIDAR + IMU branchés
+- [ ] Docker micro-ROS agent lancé (port 8888)
+- [ ] `./start_stack.sh` lancé sans erreurs
+- [ ] RViz ouvert avec les bons displays
+- [ ] `ros2 topic list` montre `/scan`, `/odom`, `/map`
+- [ ] Teleop keyboard fonctionne (W/A/S/D)
+- [ ] Robot se déplace en RViz
+- [ ] Carte se met à jour autour du robot
+
+**Si tout est ✅ : Le système fonctionne ! 🎉**
+
+---
+
+## 📚 Prochaines Étapes
+
+1. **Voir [ARCHITECTURE.md](ARCHITECTURE.md)** - Architecture système complète
+2. **Voir [SLAM_IMPLEMENTATION.md](SLAM_IMPLEMENTATION.md)** - Algorithme SLAM détaillé
+3. **Voir [PERFORMANCES.md](PERFORMANCES.md)** - Comparaison avant/après optimisations
+4. **Configurer Nav2** - Pour navigation autonome (non manuel)
+5. **Ajouter loop closure** - Pour grandes cartes sans dérive
+
+---
+
+## ⚠️ Notes Importantes
+
+### Timestamps
+- ESP32 boot-time (sec: ~8000) vs ROS2 wall-clock (sec: ~1770000000)
+- **Solution:** `scan_restamper.py` re-timestamp automatiquement
+- Si `/map` reste vide → vérifier que restamper tourne
+
+### Odométrie
+- Motor odometry **dépend de `/cmd_vel`** pour calculer position
+- Sans commande = position statique (correct)
+- Fusion EKF corrige la dérive avec SLAM
+
+### SLAM Toolbox
+- Mode `mapping` : accumule tous les scans
+- Résolution `0.025m` = 2.5cm/pixel (très précis, 5x5m zone)
+- Ceres solver avec SPARSE_NORMAL_CHOLESKY (rapide, bas CPU)
+
+---
+
+**Version:** 1.0 (Février 2026) | **Status:** ✅ Stable & Tested
