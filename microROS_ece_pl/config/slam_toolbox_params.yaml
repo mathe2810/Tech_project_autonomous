@@ -25,8 +25,16 @@ slam_toolbox:
     
     use_scan_matching: true
     use_scan_barycenter: true
-    minimum_travel_distance: 0.001      # TRES BAS
-    minimum_travel_heading: 0.001       # TRES BAS
+    minimum_travel_distance: 0.1       # INCREASED from 0.001 = better map quality
+    minimum_travel_heading: 0.1        # INCREASED = reduces noise
+    
+    # Weight odometry less since it's not reliable (no encoders)
+    initial_pose_guess_error_in_rotation: 0.5      # Don't trust gyro much
+    initial_pose_guess_error_in_translation: 0.5   # Don't trust motor odom much
+    
+    # Trust scan matching more than odometry
+    coarse_angle_resolution: 0.04      # Wider search for good matches
+    coarse_search_angle_offset: 0.349  # +/- 20 degrees
     
     scan_buffer_size: 10
     do_loop_closing: false

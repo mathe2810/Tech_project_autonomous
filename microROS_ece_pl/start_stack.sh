@@ -57,9 +57,9 @@ SCAN_RESTAMPER_PID=$!
 
 sleep 1
 
-echo "[4.5/7] Publishing static TF: laser_link -> base_link..."
-ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 base_link laser_link &
-TF_STATIC_PID=$!
+echo "[4.3/7] Publishing static TF: laser_link -> base_link & imu_link -> base_link..."
+python3 publish_tf.py &
+TF_PUBLISHER_PID=$!
 
 sleep 1
 
@@ -104,7 +104,7 @@ cleanup() {
   sleep 0.5
   kill $SCAN_RESTAMPER_PID 2>/dev/null || true
   sleep 0.5
-  kill $TF_STATIC_PID 2>/dev/null || true
+  kill $TF_PUBLISHER_PID 2>/dev/null || true
   sleep 0.5
   kill $IMU_FILTER_PID 2>/dev/null || true
   sleep 0.5

@@ -146,13 +146,13 @@ bool create_entities() {
   executor = rclc_executor_get_zero_initialized_executor();
   if (rclc_executor_init(&executor, &support.context, 1, &allocator) != RCL_RET_OK) return false;
   
-  msg_lidar.header.frame_id.data = (char*)"base_link";
-  msg_lidar.header.frame_id.size = strlen("base_link");
+  msg_lidar.header.frame_id.data = (char*)"laser_link";
+  msg_lidar.header.frame_id.size = strlen("laser_link");
   msg_lidar.ranges.data = lidar_ranges;
   msg_lidar.ranges.size = 360;
   
-  msg_imu.header.frame_id.data = (char*)"imu";
-  msg_imu.header.frame_id.size = strlen("imu");
+  msg_imu.header.frame_id.data = (char*)"imu_link";
+  msg_imu.header.frame_id.size = strlen("imu_link");
   
   Serial.println("[ROS] OK");
   return true;

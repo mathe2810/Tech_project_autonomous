@@ -32,12 +32,16 @@ class MotorOdomNode(Node):
         self.declare_parameter('use_imu_heading', True)  # Use gyro for better yaw
         self.declare_parameter('wheel_base', 0.2)  # Distance between wheels (meters)
         self.declare_parameter('publish_rate', 50.0)  # 50 Hz
+        self.declare_parameter('linear_vel_scale', 0.8)  # Scale factor for cmd_vel (accounts for friction)
+        self.declare_parameter('angular_vel_scale', 0.9)  # Scale factor for rotation
         
         self.odom_frame = self.get_parameter('odom_frame').value
         self.base_frame = self.get_parameter('base_frame').value
         self.use_imu_heading = self.get_parameter('use_imu_heading').value
         self.wheel_base = self.get_parameter('wheel_base').value
         publish_rate = self.get_parameter('publish_rate').value
+        self.linear_vel_scale = self.get_parameter('linear_vel_scale').value
+        self.angular_vel_scale = self.get_parameter('angular_vel_scale').value
         
         # State
         self.x = 0.0
@@ -88,7 +92,10 @@ class MotorOdomNode(Node):
             f'Motor Odometry node started\n'
             f'  Frame: {self.odom_frame} -> {self.base_frame}\n'
             f'  Use IMU heading: {self.use_imu_heading}\n'
-            f'  Wheel base: {self.wheel_base}m'
+            f'  Wheel base: {self.wheel_base}m\n'
+            f'  Linear vel scale: {self.linear_vel_scale}\n'
+            f'  Angular vel scale: {self.angular_vel_scale}\n'
+            f'  WARNING: No wheel encoders! Odometry will drift. SLAM will correct it.'
         )
     
     def cmd_vel_callback(self, msg: Twist):
@@ -110,19 +117,23 @@ class MotorOdomNode(Node):
         if dt <= 0 or dt > 1.0:  # Ignore first call or large jumps
             return
         
+        # Apply scaling factors (account for real robot behavior)
+        vx_scaled = self.vx * self.linear_vel_scale
+        wz_scaled = self.wz * self.angular_vel_scale
+        
         # Choose heading source
-        wz_used = self.imu_wz if self.use_imu_heading else self.wz
+        wz_used = self.imu_wz if self.use_imu_heading else wz_scaled
         
         # Integrate pose (simple kinematic model)
         # For differential drive: x, y updates
-        if abs(self.wz) > 0.001:  # Turning
+        if abs(wz_scaled) > 0.001:  # Turning
             # Curved path using bicycle model
-            radius = self.vx / self.wz if abs(self.wz) > 0.001 else float('inf')
+            radius = vx_scaled / wz_scaled if abs(wz_scaled) > 0.001 else float('inf')
             self.x += radius * (math.sin(self.yaw + wz_used * dt) - math.sin(self.yaw))
             self.y += radius * (-math.cos(self.yaw + wz_used * dt) + math.cos(self.yaw))
         else:  # Straight line
-            self.x += self.vx * math.cos(self.yaw) * dt
-            self.y += self.vx * math.sin(self.yaw) * dt
+            self.x += vx_scaled * math.cos(self.yaw) * dt
+            self.y += vx_scaled * math.sin(self.yaw) * dt
         
         # Integrate yaw (always use IMU if available)
         self.yaw += wz_used * dt
