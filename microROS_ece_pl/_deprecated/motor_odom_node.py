@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
 Motor-based Odometry without encoders.
-Uses PWM commands + IMU gyroscope for heading estimation.
-Publishes /odom and /tf odom->base_link transforms.
+100% LIDAR mode: IMU is NOT used for heading, only motor commands.
+SLAM will correct the heading via scan matching.
 
 Input:
   - /cmd_vel : Twist commands (linear.x, angular.z)
-  - /imu/data_filtered : IMU data for gyroscope (angular velocity)
 
 Output:
   - /odom : Odometry (PoseWithCovariance + TwistWithCovariance)
@@ -29,13 +28,11 @@ class MotorOdomNode(Node):
         # Parameters
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_link')
-        self.declare_parameter('use_imu_heading', True)  # Use gyro for better yaw
         self.declare_parameter('wheel_base', 0.2)  # Distance between wheels (meters)
         self.declare_parameter('publish_rate', 50.0)  # 50 Hz
         
         self.odom_frame = self.get_parameter('odom_frame').value
         self.base_frame = self.get_parameter('base_frame').value
-        self.use_imu_heading = self.get_parameter('use_imu_heading').value
         self.wheel_base = self.get_parameter('wheel_base').value
         publish_rate = self.get_parameter('publish_rate').value
         
@@ -50,9 +47,6 @@ class MotorOdomNode(Node):
         # Subscriptions
         self.cmd_vel_sub = self.create_subscription(
             Twist, '/cmd_vel', self.cmd_vel_callback, 10
-        )
-        self.imu_sub = self.create_subscription(
-            Imu, '/imu/data_filtered', self.imu_callback, 10
         )
         
         # Publishers
@@ -87,7 +81,7 @@ class MotorOdomNode(Node):
         self.get_logger().info(
             f'Motor Odometry node started\n'
             f'  Frame: {self.odom_frame} -> {self.base_frame}\n'
-            f'  Use IMU heading: {self.use_imu_heading}\n'
+            f'  Mode: 100% Motor Odometry (NO IMU)\n'
             f'  Wheel base: {self.wheel_base}m'
         )
     
@@ -95,11 +89,6 @@ class MotorOdomNode(Node):
         """Receive velocity commands from motor controller"""
         self.vx = msg.linear.x
         self.wz = msg.angular.z
-    
-    def imu_callback(self, msg: Imu):
-        """Receive IMU data for gyroscope heading"""
-        # Use Z angular velocity (rotation around vertical axis)
-        self.imu_wz = msg.angular_velocity.z
     
     def update_callback(self):
         """Integrate motion and publish odometry"""
@@ -110,22 +99,19 @@ class MotorOdomNode(Node):
         if dt <= 0 or dt > 1.0:  # Ignore first call or large jumps
             return
         
-        # Choose heading source
-        wz_used = self.imu_wz if self.use_imu_heading else self.wz
-        
-        # Integrate pose (simple kinematic model)
+        # Integrate pose (simple kinematic model - NO IMU, just motor commands)
         # For differential drive: x, y updates
         if abs(self.wz) > 0.001:  # Turning
             # Curved path using bicycle model
             radius = self.vx / self.wz if abs(self.wz) > 0.001 else float('inf')
-            self.x += radius * (math.sin(self.yaw + wz_used * dt) - math.sin(self.yaw))
-            self.y += radius * (-math.cos(self.yaw + wz_used * dt) + math.cos(self.yaw))
+            self.x += radius * (math.sin(self.yaw + self.wz * dt) - math.sin(self.yaw))
+            self.y += radius * (-math.cos(self.yaw + self.wz * dt) + math.cos(self.yaw))
         else:  # Straight line
             self.x += self.vx * math.cos(self.yaw) * dt
             self.y += self.vx * math.sin(self.yaw) * dt
         
-        # Integrate yaw (always use IMU if available)
-        self.yaw += wz_used * dt
+        # Integrate yaw (motor commands ONLY - SLAM will correct)
+        self.yaw += self.wz * dt
         self.yaw = self._normalize_angle(self.yaw)
         
         # Publish odometry
@@ -133,7 +119,6 @@ class MotorOdomNode(Node):
         
         # Publish transform
         self._publish_tf(now)
-    
     def _publish_odom(self, timestamp):
         """Publish odometry message"""
         odom = Odometry()
@@ -163,7 +148,7 @@ class MotorOdomNode(Node):
         odom.twist.twist.linear.z = 0.0
         odom.twist.twist.angular.x = 0.0
         odom.twist.twist.angular.y = 0.0
-        odom.twist.twist.angular.z = self.imu_wz if self.use_imu_heading else self.wz
+        odom.twist.twist.angular.z = self.wz  # Motor command only
         
         # Twist covariance
         odom.twist.covariance = self.twist_covariance

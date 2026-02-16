@@ -1,0 +1,22 @@
+rf2o_laser_odometry:
+  ros__parameters:
+    # Scan topic
+    laser_scan_topic: /scan
+    odom_topic: /odom_rf2o
+    base_frame_id: base_link
+    odom_frame_id: odom
+    
+    # Don't wait for external pose - RF2O initializes from first scan
+    init_pose_from_topic: ''
+    
+    # Processing
+    freq: 20.0
+    publish_tf: false
+    
+    # Motion estimation
+    max_linear_speed: 1.0  # m/s
+    max_angular_speed: 3.14  # rad/s
+    
+    # Optimization
+    max_iterations: 200
+    tolerance: 1e-6

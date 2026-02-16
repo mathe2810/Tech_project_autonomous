@@ -2,8 +2,10 @@ slam_toolbox:
   ros__parameters:
     use_sim_time: false
     
-    scan_queue_size: 1
-    throttle_scans: 1
+    # === MESSAGE FILTER & QUEUE MANAGEMENT ===
+    scan_queue_size: 20
+    throttle_scans: 1            # Back to processing every scan
+    rviz_transmit_queue_size: 0
     
     mode: mapping
     odom_frame: odom
@@ -12,7 +14,7 @@ slam_toolbox:
     scan_topic: /scan
     
     transform_publish_period: 0.02
-    map_update_interval: 0.1
+    map_update_interval: 2.0
     
     # === SOLVER CONFIG ===
     solver_plugin: solver_plugins::CeresSolver
@@ -22,22 +24,24 @@ slam_toolbox:
     ceres_dogleg_type: TRADITIONAL_DOGLEG
     
     # === CONVERGENCE & STABILITY ===
-    resolution: 0.025
+    resolution: 0.05
     max_laser_range: 5.0
     min_laser_range: 0.15
     
+    # === SCAN MATCHING (maximize LIDAR trust) ===
     use_scan_matching: true
     use_scan_barycenter: true
-    # Threshold before processing - small movements accumulate before SLAM update
-    minimum_travel_distance: 0.01       # 1cm movement threshold
-    minimum_travel_heading: 0.05        # 0.05 rad = 2.8 degrees threshold
+    
+    # More frequent updates = more LIDAR data processed
+    minimum_travel_distance: 0.1      # Lower = more frequent LIDAR scans
+    minimum_travel_heading: 0.1       # Lower = more frequent updates
     
     scan_buffer_size: 30
     
-    # === LOOP CLOSURE (aggressive to prevent drift) ===
+    # === LOOP CLOSURE (detect when revisiting areas) ===
     do_loop_closing: true
-    loop_search_maximum_distance: 2.0
-    loop_match_minimum_chain_size: 5
+    loop_search_maximum_distance: 3.0      # Larger = detect more loops
+    loop_match_minimum_chain_size: 4
     loop_match_maximum_variance_queue_size: 5
     loop_match_minimum_response_fine: 0.1
     loop_match_minimum_response_coarse: 0.3

@@ -1,0 +1,12 @@
+lifecycle_manager:
+  ros__parameters:
+    node_names:
+      - motor_odom
+      - scan_restamper
+      - simple_ekf
+      - slam_toolbox
+    
+    autostart: true
+    node_active_states:
+      - active
+    transition_success_threshold: 0.75

@@ -1,0 +1,53 @@
+slam_toolbox:
+  ros__parameters:
+    # Scanning parameters
+    scan_topic: /scan
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_link
+    scan_queue_size: 300
+    
+    # Map parameters
+    map_update_interval: 0.2  # 200ms (more time to process)
+    resolution: 0.025  # 2.5cm per cell
+    map_start_angle: 0.0
+    map_end_angle: 2.0
+    
+    # Solver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: HuberLoss
+    
+    # Matcher (scan-to-map)
+    correlation_response_threshold: 0.1
+    loop_search_space_dimension: 8.0
+    do_loop_closing: true
+    loop_match_minimum_chain_size: 10
+    loop_match_maximum_variance_queue_size: 5
+    loop_match_minimum_response_fine: 0.1
+    loop_match_minimum_response_coarse: 0.3
+    minimum_travel_distance: 0.001  # 1mm (very permissive for testing)
+    minimum_travel_heading: 0.001  # ~0.06 degrees (very permissive)
+    
+    # Constraints
+    max_beams_to_match: 300
+    max_iterations: 10
+    non_cumulative_delta_theta: 0.02
+    non_cumulative_delta_x: 0.02
+    non_cumulative_delta_y: 0.02
+    transform_tolerance: 0.5
+    tf_buffer_duration: 10.0
+    
+    # SLAM Async mode specifics
+    mode: mapping
+    async_mode: true
+    
+    # Processing
+    use_scan_matching: true
+    use_scan_barycenter: true
+    minimum_angle_penalty: 0.0
+    minimum_distance_penalty: 0.0
+    angle_variance_penalty: 1.0
+    distance_variance_penalty: 1.0
