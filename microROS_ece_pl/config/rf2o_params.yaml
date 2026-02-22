@@ -1,4 +1,4 @@
-rf2o_laser_odometry:
+CLaserOdometry2DNode:
   ros__parameters:
     # Scan topic
     laser_scan_topic: /scan
@@ -7,16 +7,16 @@ rf2o_laser_odometry:
     odom_frame_id: odom
     
     # Don't wait for external pose - RF2O initializes from first scan
-    init_pose_from_topic: ''
+    init_pose_from_topic: ""
     
-    # Processing
-    freq: 20.0
+    # Processing - ULTRA REACTIVE MODE
+    freq: 40.0                   # Match LiDAR rate for instant reaction
     publish_tf: false
     
-    # Motion estimation
-    max_linear_speed: 1.0  # m/s
-    max_angular_speed: 3.14  # rad/s
+    # Motion estimation - OPTIMAL VALUES (tested empirically)
+    max_linear_speed: 0.25   # m/s - realistic maximum
+    max_angular_speed: 2.0   # rad/s (~115°/s) - allows up to 1.5 rad/s operation
     
-    # Optimization
-    max_iterations: 200
-    tolerance: 1e-6
+    # Optimization - PRECISION MODE
+    max_iterations: 300          # More iterations = better convergence
+    tolerance: 1e-7              # Higher precision

@@ -44,23 +44,23 @@ def main():
             key = get_key()
             
             if key.upper() == 'W':
-                twist.linear.x = 0.3
+                twist.linear.x = 0.5
                 twist.angular.z = 0.0
                 print("→ FORWARD")
             
             elif key.upper() == 'S':
-                twist.linear.x = -0.3
+                twist.linear.x = -0.5
                 twist.angular.z = 0.0
                 print("← BACKWARD")
             
             elif key.upper() == 'A':
                 twist.linear.x = 0.0
-                twist.angular.z = 1.5  # Increased from 0.5
+                twist.angular.z = 1.3
                 print("↻ ROTATE LEFT")
             
             elif key.upper() == 'D':
                 twist.linear.x = 0.0
-                twist.angular.z = -1.5  # Increased from 0.5
+                twist.angular.z = -1.3
                 print("↺ ROTATE RIGHT")
             
             elif key == ' ':

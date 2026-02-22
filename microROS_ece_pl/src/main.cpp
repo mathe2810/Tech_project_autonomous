@@ -19,7 +19,9 @@
 
 #define WIFI_SSID "iPhone (3)"
 #define WIFI_PASSWORD "Dr69qf76&*"
-#define AGENT_IP IPAddress(172, 20, 10, 4)
+#define AGENT_HOSTNAME "microros-agent.local"
+#define AGENT_FALLBACK_IP_PRIMARY IPAddress(172, 20, 10, 3)
+#define AGENT_FALLBACK_IP_SECONDARY IPAddress(172, 20, 10, 4)
 #define AGENT_PORT 8888
 
 #define LIDAR_RX 16
@@ -115,6 +117,39 @@ typedef struct {
 
 static KalmanFilter1D kf_ax, kf_ay, kf_az;
 
+static bool resolve_agent_ip(IPAddress &agent_ip) {
+  if (WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+
+  for (int attempt = 0; attempt < 5; attempt++) {
+    if (WiFi.hostByName(AGENT_HOSTNAME, agent_ip) == 1) {
+      return true;
+    }
+    delay(200);
+  }
+
+  return false;
+}
+
+static bool probe_agent_with_transport(
+  char *wifi_ssid,
+  char *wifi_password,
+  const IPAddress &candidate_ip,
+  uint16_t port
+) {
+  set_microros_wifi_transports(wifi_ssid, wifi_password, candidate_ip, port);
+
+  for (int attempt = 0; attempt < 3; attempt++) {
+    if (rmw_uros_ping_agent(150, 1) == RMW_RET_OK) {
+      return true;
+    }
+    delay(120);
+  }
+
+  return false;
+}
+
 void kalman_init(KalmanFilter1D *kf) {
   kf->x = 0.0f;
   kf->P = 1.0f;
@@ -146,8 +181,8 @@ bool create_entities() {
   executor = rclc_executor_get_zero_initialized_executor();
   if (rclc_executor_init(&executor, &support.context, 1, &allocator) != RCL_RET_OK) return false;
   
-  msg_lidar.header.frame_id.data = (char*)"base_link";
-  msg_lidar.header.frame_id.size = strlen("base_link");
+  msg_lidar.header.frame_id.data = (char*)"laser_link";
+  msg_lidar.header.frame_id.size = strlen("laser_link");
   msg_lidar.ranges.data = lidar_ranges;
   msg_lidar.ranges.size = 360;
   
@@ -415,6 +450,9 @@ void publishTask(void *param) {
 }
 
 void setup() {
+  static char wifi_ssid[] = WIFI_SSID;
+  static char wifi_password[] = WIFI_PASSWORD;
+
   Serial.begin(115200);
   delay(1000);
   Serial.println("\n=== SETUP ===");
@@ -445,7 +483,49 @@ void setup() {
   
   // Initialize motors
   motor_init();
-  set_microros_wifi_transports(WIFI_SSID, WIFI_PASSWORD, AGENT_IP, AGENT_PORT);
+
+  IPAddress agent_ip;
+  bool endpoint_ready = false;
+
+  if (resolve_agent_ip(agent_ip)) {
+    Serial.print("[AGENT] Resolved ");
+    Serial.print(AGENT_HOSTNAME);
+    Serial.print(" -> ");
+    Serial.println(agent_ip);
+    endpoint_ready = probe_agent_with_transport(wifi_ssid, wifi_password, agent_ip, AGENT_PORT);
+    if (!endpoint_ready) {
+      Serial.println("[AGENT] Hostname resolved but not reachable, trying fallback IPs...");
+    }
+  } else {
+    Serial.println("[AGENT] DNS failed, trying fallback IPs...");
+  }
+
+  if (!endpoint_ready) {
+    const IPAddress fallback_candidates[] = {
+      AGENT_FALLBACK_IP_PRIMARY,
+      AGENT_FALLBACK_IP_SECONDARY,
+    };
+
+    for (const IPAddress &candidate : fallback_candidates) {
+      Serial.print("[AGENT] Trying fallback ");
+      Serial.println(candidate);
+      if (probe_agent_with_transport(wifi_ssid, wifi_password, candidate, AGENT_PORT)) {
+        agent_ip = candidate;
+        endpoint_ready = true;
+        Serial.print("[AGENT] Fallback reachable: ");
+        Serial.println(agent_ip);
+        break;
+      }
+    }
+  }
+
+  if (!endpoint_ready) {
+    agent_ip = AGENT_FALLBACK_IP_PRIMARY;
+    set_microros_wifi_transports(wifi_ssid, wifi_password, agent_ip, AGENT_PORT);
+    Serial.print("[AGENT] No endpoint reachable now, keeping primary fallback: ");
+    Serial.println(agent_ip);
+  }
+
   state = WAITING_AGENT;
 }
 

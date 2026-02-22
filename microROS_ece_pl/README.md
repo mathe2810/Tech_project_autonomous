@@ -60,6 +60,16 @@ ros2 launch nav2_bringup navigation_launch.py
 - **Nav2**: [config/nav2_params.yaml](config/nav2_params.yaml)
 - **SLAM Toolbox**: [config/slam_toolbox_params.yaml](config/slam_toolbox_params.yaml)
 
+### micro-ROS agent (VM avec IP dynamique)
+
+Le firmware ESP32 essaie d'abord de résoudre `AGENT_HOSTNAME` (par défaut `microros-agent.local`), puis utilise `AGENT_FALLBACK_IP` si la résolution échoue.
+
+Dans `src/main.cpp`:
+- `AGENT_HOSTNAME` : nom DNS/mDNS de la VM
+- `AGENT_FALLBACK_IP` : IP de secours
+
+Conseil VM (pont + NAT) : garde le NAT pour Internet et fixe l'IP de l'interface pont (DHCP reservation ou IP statique), pour une connexion agent plus stable.
+
 ## Topics clés
 
 | Topic | Type | Direction | Description |
