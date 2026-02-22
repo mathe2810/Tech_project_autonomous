@@ -1,3 +1,14 @@
+# LiDAR Front Offset Calibration
+
+**Calibration Result (22 Feb 2026):**
+
+- The true front of the robot (for mapping and obstacle avoidance) is at **-90 degrees** relative to the LiDAR scan.
+- This offset is now applied in lidar_gap_follower.py as `lidar_front_offset_deg = -90.0`.
+- Update your mapping and navigation nodes to use this offset for correct front alignment.
+
+> Calibration test: LiDAR front alignment script confirmed -90° is the correct value for the robot's front.
+
+---
 # 🔍 MAPPING DIVERGENCE DURING ROTATION - ROOT CAUSE & FIX
 
 ## Problem Description
