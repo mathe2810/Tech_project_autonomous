@@ -1,253 +1,136 @@
 #!/usr/bin/env python3
-"""
-ROS2 node: wall_centering_node
-
-Algorithme de centrage entre deux murs à partir d'un LIDAR.
-- Souscrit à /scan_raw (LaserScan)
-- Publie sur /cmd_vel (Twist)
-- Fréquence: 15 Hz
-
-Le robot reste au milieu entre deux murs et adapte sa vitesse pour le mapping.
-"""
-
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
-import numpy as np  # Assure-toi que numpy est installé (pip install numpy)
-import csv
-import os
+import numpy as np
+import pygame
+import math
+import time
 
-class WallCenteringNode(Node):
+class CorridorRailNode(Node):
     def __init__(self):
-        super().__init__('wall_centering_node')
-        self.lidar_offset_deg = -89.1  # Offset calibré selon test_lidar_front_alignment
-        self.get_logger().info(f"WallCenteringNode __init__ called, lidar_offset_deg={self.lidar_offset_deg}")
-        self.stop_requested = False
-        # CSV log file setup
-        import csv
-        import os
-        self.csv_log_path = os.path.join(os.path.dirname(__file__), 'logs', 'wall_centering_log.csv')
-        self.csv_log_header_written = False
-        self.scan_sub = self.create_subscription(
-            LaserScan, '/scan_raw', self.scan_callback, 10)
-        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.timer = self.create_timer(1.0/15.0, self.control_step)
+        super().__init__('corridor_rail_node')
+        
+        self.pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.sub = self.create_subscription(LaserScan, '/scan_raw', self.callback, 10)
+        
+        # --- RÉGLAGES "RAIL VIRTUEL" ---
+        self.cruise_speed = 0.32      # Vitesse constante pour la course
+        self.alpha_rot = 0.95         # Amortissement très fort
+        self.deadzone = 0.10          # Zone morte fine (on veut être au milieu)
+        self.gain_rot = 0.4           # Gain très doux pour "glisser" dans les virages
+        self.min_rotation = 0.38      # Seuil minimal pour faire bouger les moteurs
+        
+        self.prev_w = 0.0
         self.last_scan = None
-        self.Kp = 0.4  # Correction plus douce
-        self.base_speed = 0.25
-        self.min_linear_x = 0.3  # Vitesse minimale
-        self.safety_dist = 0.5  # Seuil augmenté pour arrêt plus tôt
-        self.state = 'forward'  # 'forward' ou 'rotate'
-        self.rotate_counter = 0
-        self.max_rotate_steps = 5  # Nombre de cycles de rotation
-        self.forward_counter = 0
-        self.max_forward_steps = 10  # Nombre de cycles d'avance
-        self.get_logger().info('Wall Centering Node ready.')
+        
+        pygame.init()
+        self.screen = pygame.display.set_mode((600, 750))
+        self.font = pygame.font.SysFont("monospace", 18, bold=True)
 
-    def publish_stop(self, repeats: int = 5, delay_s: float = 0.03) -> int:
-        stop = Twist()
-        stop.linear.x = 0.0
-        stop.angular.z = 0.0
-        print("⊙ STOP", flush=True)
-        sent = 0
-        for _ in range(max(1, repeats)):
-            try:
-                self.cmd_pub.publish(stop)
-                sent += 1
-            except Exception:
-                break
-            import time
-            time.sleep(max(0.0, delay_s))
-        return sent
-
-    # ...existing code...
-
-    def scan_callback(self, msg):
+    def callback(self, msg):
         self.last_scan = msg
+        self.run_logic()
 
-    def control_step(self):
-        # Empêche toute publication après STOP
-        if self.stop_requested:
-            return
-        if self.last_scan is None:
-            return
+    def run_logic(self):
+        if not self.last_scan: return
 
-        scan = self.last_scan
-        ranges = np.array(scan.ranges)
-        angle_min = scan.angle_min
-        angle_inc = scan.angle_increment
-        n = len(ranges)
+        ranges = np.array(self.last_scan.ranges)
+        # On limite la portée à 2.0m : inutile de voir plus loin dans un couloir
+        ranges = np.where(np.isfinite(ranges) & (ranges > 0.15), ranges, 2.0)
+        
+        angle_inc = self.last_scan.angle_increment
+        idx_front = int((math.pi/2 - self.last_scan.angle_min) / angle_inc)
+        
+        # On regarde large sur les côtés (60°) pour bien capter les murs du couloir
+        side_angle = int(math.radians(60) / angle_inc)
+        window = int(math.radians(20) / angle_inc)
 
-        def valid_mean(start_deg, end_deg):
-            start_rad = np.deg2rad(start_deg)
-            end_rad = np.deg2rad(end_deg)
-            i_start = int((start_rad - angle_min) / angle_inc)
-            i_end = int((end_rad - angle_min) / angle_inc)
-            i_start = np.clip(i_start, 0, n-1)
-            i_end = np.clip(i_end, 0, n-1)
-            vals = ranges[i_start:i_end+1]
-            vals = vals[np.isfinite(vals)]
-            return np.mean(vals) if len(vals) > 0 else np.nan
+        # Mesure de la distance aux murs latéraux
+        dist_l = np.mean(ranges[idx_front + side_angle - window : idx_front + side_angle + window])
+        dist_r = np.mean(ranges[idx_front - side_angle - window : idx_front - side_angle + window])
+        # Distance devant pour freiner si le virage est trop serré
+        dist_f = np.mean(ranges[idx_front - 10 : idx_front + 10])
 
-        # Secteurs pour LIDAR 360°
-        left_start = -10
-        left_end = +10
-        front_start = 80
-        front_end = 100
-        right_start = 170
-        right_end = 190
-
-        d_left = valid_mean(left_start, left_end)
-        d_right = valid_mean(right_start, right_end)
-        d_front = valid_mean(front_start, front_end)
-        error = d_left - d_right
-
-        twist = Twist()
-
-        # Séquence alternée
-        if np.isfinite(d_front) and d_front < self.safety_dist:
-            # Rotation stabilisée : toujours à gauche
-            self.state = 'rotate'
-            twist.linear.x = 0.0
-            twist.angular.z = 1.3  # Toujours à gauche, rotation saturée
-            # On ne sort de rotate que si d_front > safety_dist
-            if np.isfinite(d_front) and d_front >= self.safety_dist:
-                self.state = 'forward'
-                self.forward_counter = 0
-        elif self.state == 'forward':
-            if self.forward_counter < self.max_forward_steps:
-                twist.linear.x = 0.15  # Avance doucement
-                twist.angular.z = 0.0
-                self.forward_counter += 1
-            else:
-                self.state = 'rotate'
-                self.rotate_counter = 0
+        # --- LOGIQUE DU RAIL ---
+        # Si L=0.5 et R=0.5, error=0 (Parfaitement centré)
+        # Si L=0.3 et R=0.7, error=-0.4 (Trop à gauche, on doit tourner à droite)
+        error = dist_l - dist_r
+        
+        if abs(error) < self.deadzone:
+            target_w = 0.0
         else:
-            # Contrôle normal
-            angular_z = -self.Kp * error
-            # Ajoute un offset pour tourner plus fort dès qu'il y a une erreur
-            if abs(error) > 0.01:
-                angular_z += np.sign(angular_z) * 0.3
-            linear_x = self.base_speed * (1 - abs(angular_z)/1.3)
-            linear_x = max(self.min_linear_x, linear_x)
-            twist.linear.x = float(linear_x)
-            twist.angular.z = float(angular_z)
+            # On calcule une rotation proportionnelle très douce
+            target_w = error * self.gain_rot
+            # Application du seuil moteur
+            if abs(target_w) < self.min_rotation:
+                target_w = np.sign(target_w) * self.min_rotation
 
-        # Clip angular_z only at publication
-        twist.angular.z = float(np.clip(twist.angular.z, -1.3, 1.3))
-        self.cmd_pub.publish(twist)
+        # --- FILTRE ANTI-ZIGZAG ---
+        # On interdit les changements brusques (Slew Rate Limit)
+        smoothed_w = (self.alpha_rot * self.prev_w) + ((1 - self.alpha_rot) * target_w)
+        
+        # On limite l'accélération de la rotation
+        max_delta = 0.04 
+        diff = smoothed_w - self.prev_w
+        if abs(diff) > max_delta:
+            smoothed_w = self.prev_w + np.sign(diff) * max_delta
+            
+        self.prev_w = smoothed_w
 
-        # Mur gauche
-        d_left = valid_mean(left_start, left_end)
-        # Mur droit
-        d_right = valid_mean(right_start, right_end)
-        # Mur frontal
-        d_front = valid_mean(front_start, front_end)
-        # Debug secteur frontal
-        front_sector = ranges[int((np.deg2rad(-100) - angle_min) / angle_inc):int((np.deg2rad(-80) - angle_min) / angle_inc)+1]
-        front_valid = front_sector[np.isfinite(front_sector)]
-        self.get_logger().info(f"FRONT SECTOR: {front_valid}")
+        # Commande
+        cmd = Twist()
+        # On ralentit un peu si le mur d'en face se rapproche (virage serré)
+        cmd.linear.x = float(self.cruise_speed if dist_f > 0.8 else self.cruise_speed * 0.7)
+        cmd.angular.z = float(np.clip(smoothed_w, -0.7, 0.7))
+        
+        self.pub.publish(cmd)
+        self.draw_ui(ranges, idx_front, dist_l, dist_r, cmd)
 
-        # Calcul de l'erreur de centrage
-        error = d_left - d_right
+    def draw_ui(self, ranges, idx_f, dl, dr, cmd):
+        self.screen.fill((15, 15, 20))
+        cx, cy = 300, 400
+        # Affichage du couloir
+        for i in range(0, len(ranges), 2):
+            r = ranges[i]
+            if r >= 2.0: continue
+            a = (i - idx_f) * self.last_scan.angle_increment - math.pi/2
+            px, py = int(cx + r*150*math.cos(a)), int(cy + r*150*math.sin(a))
+            pygame.draw.circle(self.screen, (0, 255, 150), (px, py), 1)
 
-        # Contrôleur proportionnel
-        angular_z = -self.Kp * error
-        # Saturation
-        angular_z = np.clip(angular_z, -1.3, 1.3)
-
-        # Adaptation de la vitesse linéaire
-        linear_x = self.base_speed * (1 - abs(angular_z))
-        # Imposer une vitesse minimale
-        linear_x = max(self.min_linear_x, linear_x)
-
-        # Sécurité frontale
-        if np.isfinite(d_front) and d_front < self.safety_dist:
-            linear_x = 0.0
-            angular_z = 1.3  # Toujours à gauche, suppression oscillation
-            self.get_logger().info("Obstacle devant, rotation stabilisée à gauche (max 1.3 rad/s)")
-
-        # Publication
-        # Publication déjà faite plus haut, ne pas dupliquer
-
-        # Debug log
-        self.get_logger().info(
-            f"d_left={d_left:.2f} d_right={d_right:.2f} d_front={d_front:.2f} error={error:.2f} cmd=({linear_x:.2f},{angular_z:.2f})")
-        # CSV logging
-        import time
-        log_row = [time.time(), d_left, d_right, d_front, error, linear_x, angular_z, self.state]
-        try:
-            write_header = False
-            if not self.csv_log_header_written:
-                write_header = not os.path.exists(self.csv_log_path)
-            with open(self.csv_log_path, 'a', newline='') as csvfile:
-                writer = csv.writer(csvfile)
-                if write_header:
-                    writer.writerow(['timestamp', 'd_left', 'd_right', 'd_front', 'error', 'cmd_v', 'cmd_w', 'state'])
-                    self.csv_log_header_written = True
-                writer.writerow(log_row)
-        except Exception as e:
-            self.get_logger().warn(f"CSV log error: {e}")
-
+        # Robot
+        pygame.draw.rect(self.screen, (255, 255, 255), (cx-10, cy-15, 20, 30), 2)
+        
+        # HUD
+        pygame.draw.rect(self.screen, (40, 40, 50), (0, 0, 600, 110))
+        txt_v = self.font.render(f"VITESSE : {cmd.linear.x:.2f} m/s", True, (255, 255, 255))
+        txt_w = self.font.render(f"DIRECTION : {cmd.angular.z:.3f} rad/s", True, (255, 150, 0))
+        txt_pos = self.font.render(f"POSITION L:{dl:.2f}m | R:{dr:.2f}m", True, (100, 255, 100))
+        
+        self.screen.blit(txt_v, (20, 15))
+        self.screen.blit(txt_w, (20, 45))
+        self.screen.blit(txt_pos, (20, 75))
+        
+        pygame.display.flip()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT: rclpy.shutdown()
 
 def main():
-    import signal
-    from rclpy.signals import SignalHandlerOptions
-
-    stop_requested = {'value': False}
-    stop_done = {'value': False}
-
-    def _run_stop_sequence(node: WallCenteringNode, reason: str) -> None:
-        if stop_done['value']:
-            return
-        stop_done['value'] = True
-        node.stop_requested = True  # Bloque toute publication
-        print(f"\n[STOP] Triggered by: {reason}", flush=True)
-        print(f"[STOP] Sending burst 1: repeats=30, delay=0.04s", flush=True)
-        try:
-            node.publish_stop(repeats=30, delay_s=0.04)
-        except Exception as exc:
-            print(f"[STOP] Burst 1 exception: {exc}", flush=True)
-        print(f"[STOP] Sending burst 2: repeats=20, delay=0.04s", flush=True)
-        try:
-            node.publish_stop(repeats=20, delay_s=0.04)
-        except Exception as exc:
-            print(f"[STOP] Burst 2 exception: {exc}", flush=True)
-        print(f"[STOP] Settle wait: 0.30s", flush=True)
-        import time
-        time.sleep(0.30)
-        print(f"[STOP] Done", flush=True)
-
-    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
-    node = WallCenteringNode()
-
-    def _sigint_handler(signum, frame):
-        del signum, frame
-        node.stop_requested = True
-        _run_stop_sequence(node, 'SIGINT signal handler')
-
-    previous_sigint_handler = signal.getsignal(signal.SIGINT)
-    signal.signal(signal.SIGINT, _sigint_handler)
-
-    # Suppression de l'appel STOP au démarrage
-
+    rclpy.init()
+    node = CorridorRailNode()
     try:
-        while rclpy.ok() and not node.stop_requested:
-            rclpy.spin_once(node, timeout_sec=0.1)
-        if node.stop_requested:
-            _run_stop_sequence(node, 'SIGINT handler')
+        rclpy.spin(node)
     except KeyboardInterrupt:
-        _run_stop_sequence(node, 'KeyboardInterrupt')
+        pass
     finally:
-        _run_stop_sequence(node, 'finalize')
+        # Stop long pour purger le WiFi
+        stop = Twist()
+        for _ in range(100):
+            node.pub.publish(stop)
+            time.sleep(0.02)
         node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
-        try:
-            signal.signal(signal.SIGINT, previous_sigint_handler)
-        except Exception:
-            pass
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

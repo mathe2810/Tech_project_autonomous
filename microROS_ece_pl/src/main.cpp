@@ -21,7 +21,7 @@
 #define WIFI_PASSWORD "Dr69qf76&*"
 #define AGENT_HOSTNAME "microros-agent.local"
 #define AGENT_FALLBACK_IP_PRIMARY IPAddress(172, 20, 10, 3)
-#define AGENT_FALLBACK_IP_SECONDARY IPAddress(172, 20, 10, 4)
+#define AGENT_FALLBACK_IP_SECONDARY IPAddress(172, 20, 10, 6)
 #define AGENT_PORT 8888
 
 #define LIDAR_RX 16
