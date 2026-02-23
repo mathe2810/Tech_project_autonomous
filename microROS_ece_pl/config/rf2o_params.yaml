@@ -1,22 +1,25 @@
 CLaserOdometry2DNode:
   ros__parameters:
-    # Scan topic
     laser_scan_topic: /scan
     odom_topic: /odom_rf2o
     base_frame_id: base_link
     odom_frame_id: odom
-    
-    # Don't wait for external pose - RF2O initializes from first scan
     init_pose_from_topic: ""
     
-    # Processing - ULTRA REACTIVE MODE
-    freq: 40.0                   # Match LiDAR rate for instant reaction
-    publish_tf: false
+    # --- STABILISATION ---
+    freq: 12.0                   # RÉDUIT: Calé sur la fréquence réelle du LiDAR
+    publish_tf: true             # Doit être true pour que SLAM reçoive l'odométrie
     
-    # Motion estimation - OPTIMAL VALUES (tested empirically)
-    max_linear_speed: 0.25   # m/s - realistic maximum
-    max_angular_speed: 2.0   # rad/s (~115°/s) - allows up to 1.5 rad/s operation
+    # --- LIMITES RÉALISTES ---
+    max_linear_speed: 0.50       # On laisse de la marge
+    max_angular_speed: 1.5       # On bride un peu pour la précision du mapping
     
-    # Optimization - PRECISION MODE
-    max_iterations: 300          # More iterations = better convergence
-    tolerance: 1e-7              # Higher precision
+    # --- OPTIMISATION ---
+    # 300 itérations c'est trop, ça peut créer du lag CPU qui décale les scans. 
+    # 30 à 50 itérations suffisent amplement si le LiDAR est propre.
+    max_iterations: 50           
+    tolerance: 1e-4              # 1e-7 est trop strict pour du bruit laser, 1e-4 est plus stable
+    
+    # --- FILTRES ANTI-DRIFT (Ajoute ces lignes si possible) ---
+    motion_filter_linear: 0.01   # Seuil mini de mouvement (1cm)
+    motion_filter_angular: 0.005 # Seuil mini de rotation (0.3°)

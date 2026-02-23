@@ -1,6 +1,4 @@
 #!/bin/bash
-# OPTIMIZED: Lidar + RF2O + SLAM WITHOUT RViz (saves 40% CPU)
-
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -59,6 +57,11 @@ cleanup() {
 
 trap cleanup INT TERM EXIT
 
+#!/bin/bash
+set -e
+
+# ... (garder le début habituel : sourcing, paths, cleanup) ...
+
 echo "=============================================="
 echo "SLAM OPTIMIZED (No RViz - CPU Efficient)"
 echo "=============================================="
@@ -67,7 +70,8 @@ pkill -f "slam_toolbox|rf2o|scan_restamper|static_transform_publisher" 2>/dev/nu
 sleep 1
 
 echo "[1/5] Static TF base_link -> laser_link"
-ros2 run tf2_ros static_transform_publisher --x 0.10 --y 0.0 --z 0.15 --roll 0 --pitch 0 --yaw 0 --frame-id base_link --child-frame-id laser_link &
+# Version simplifiée compatible Humble
+ros2 run tf2_ros static_transform_publisher 0.10 0.0 0.15 0 0 0 base_link laser_link &
 TF_LASER_PID=$!
 sleep 1
 
@@ -77,9 +81,10 @@ RESTAMPER_PID=$!
 sleep 2
 
 echo "[3/5] Waiting for /scan"
+# On s'assure que le laser tourne
 python3 wait_for_topic.py /scan 15 || { echo "❌ /scan timeout"; exit 1; }
 
-echo "[4/5] RF2O at 40 Hz (ULTRA REACTIVE)"
+echo "[4/5] RF2O (Synchronized with LiDAR)"
 ros2 run rf2o_laser_odometry rf2o_laser_odometry_node \
   --ros-args \
   --params-file config/rf2o_params.yaml \
@@ -87,41 +92,16 @@ ros2 run rf2o_laser_odometry rf2o_laser_odometry_node \
   -p odom_topic:=/odom \
   -p base_frame_id:=base_link \
   -p odom_frame_id:=odom \
-  -p freq:=40.0 \
+  -p freq:=15.0 \
   -p publish_tf:=true &
 RF2O_PID=$!
 sleep 2
 
-if ! kill -0 "$RF2O_PID" 2>/dev/null; then
-  echo "❌ RF2O failed"
-  exit 1
-fi
-
-echo "[5/5] SLAM Toolbox (ULTRA REACTIVE: 6.7Hz map, instant corrections)"
+echo "[5/5] SLAM Toolbox (Async Mode)"
 ros2 run slam_toolbox async_slam_toolbox_node \
   --ros-args \
-  --params-file config/slam_toolbox_rf2o.yaml &
+  --params-file config/slam_toolbox_rf2o.yaml \
+  -p use_sim_time:=false &
 SLAM_PID=$!
-sleep 2
-
-echo ""
-echo "=============================================="
-echo "✅ SLAM RUNNING (NO RVIZ)"
-echo "=============================================="
-echo "Config: 🚀 ULTRA REACTIVE MODE 🚀"
-echo "  - Map update: 6.7 Hz (0.15s interval)"
-echo "  - All scans processed (throttle=1)"
-echo "  - RF2O: 40 Hz (matches LiDAR rate)"
-echo "  - TF updates: 50 Hz"
-echo "  - Instant corrections (no delay)"
-echo "  - Ultra-low thresholds (0.05/0.10)"
-echo ""
-echo "Monitoring:"
-echo "  ros2 topic hz /map"
-echo "  ros2 topic hz /odom"
-echo "  ros2 topic echo /odom --once"
-echo ""
-echo "To view map later: rviz2 -d rviz_config.rviz"
-echo "=============================================="
 
 wait
