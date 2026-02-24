@@ -23,3 +23,4 @@ CLaserOdometry2DNode:
     # --- FILTRES ANTI-DRIFT (Ajoute ces lignes si possible) ---
     motion_filter_linear: 0.01   # Seuil mini de mouvement (1cm)
     motion_filter_angular: 0.005 # Seuil mini de rotation (0.3°)
+    max_laser_range: 2.0         # On limite la portée utile du scan à 2m

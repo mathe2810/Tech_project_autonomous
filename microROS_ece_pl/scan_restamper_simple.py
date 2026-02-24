@@ -72,6 +72,10 @@ class ScanRestamper(Node):
         if self.scan_count == 1:
             self.get_logger().info(f'First scan - frame_id: {msg.header.frame_id}')
         
+        # Filtrer les ranges supérieurs à 2.0m
+        filtered_ranges = [r if r <= 2.0 else float('inf') for r in msg.ranges]
+        msg.ranges = filtered_ranges
+
         msg.header.stamp = self.get_clock().now().to_msg()
         try:
             self.scan_pub.publish(msg)
