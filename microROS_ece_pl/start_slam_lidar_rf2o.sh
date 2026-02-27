@@ -90,6 +90,8 @@ python3 wait_for_topic.py /scan 15 || {
   exit 1
 }
 
+export OMP_NUM_THREADS=12
+export CERES_NUM_THREADS=12
 echo "[4/6] Starting RF2O (40 Hz - ULTRA REACTIVE)"
 ros2 run rf2o_laser_odometry rf2o_laser_odometry_node \
   --ros-args \
@@ -98,6 +100,7 @@ ros2 run rf2o_laser_odometry rf2o_laser_odometry_node \
   -p odom_topic:=/odom \
   -p base_frame_id:=base_link \
   -p odom_frame_id:=odom \
+    -p num_threads:=12 \
   -p freq:=40.0 \
   -p publish_tf:=true &
 RF2O_PID=$!

@@ -7,10 +7,10 @@ Panels:
         - /Global Options1
         - /Status1
         - /Map1
-        - /Map1/Status1
         - /LaserScan1
         - /Odometry1
         - /TF1
+        - /TF1/Frames1
       Splitter Ratio: 0.5
     Tree Height: 865
   - Class: rviz_common/Selection
@@ -168,8 +168,6 @@ Visualization Manager:
         All Enabled: true
         base_link:
           Value: true
-        laser_link:
-          Value: true
         map:
           Value: true
         odom:
@@ -183,8 +181,7 @@ Visualization Manager:
         map:
           odom:
             base_link:
-              laser_link:
-                {}
+              {}
       Update Interval: 0
       Value: true
   Enabled: true

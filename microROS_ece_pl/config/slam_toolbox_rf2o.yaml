@@ -1,83 +1,35 @@
 slam_toolbox:
   ros__parameters:
-    use_sim_time: false
+    # --- 1. ALIGNEMENT LIDAR (Supprime les WARNINGS de range) ---
+    # Ton script Python dit 0.1 et 5.0, donc on met EXACTEMENT pareil ici
+    max_laser_range: 5.0             
+    minimum_time_interval: 0.0001    # Ne pas filtrer les scans par le temps
     
-    # === MESSAGE FILTER & QUEUE MANAGEMENT === HIGH PERFORMANCE
-    scan_queue_size: 100             # Large buffer to never drop scans
-    throttle_scans: 1                # Process ALL scans - no compromise
-    rviz_transmit_queue_size: 20     # High refresh rate for smooth visualization
+    # --- 2. LE SOLVEUR (On laisse Ceres faire sa vie avec ses 50 threads) ---
+    solver_plugin: solver_plugins::CeresSolver
+    do_loop_closure: true
     
-    mode: mapping
+    # --- 3. TON RÉGLAGE D'ANGLE FAVORI (Réactivité max) ---
+    use_odometry: true
+    minimum_travel_distance: 0.0     
+    minimum_travel_heading: 0.0      
+    angle_variance_penalty: 2.0      
+    distance_variance_penalty: 0.1
+
+    # --- 4. CONFIGURATION DES FRAMES ---
     odom_frame: odom
     map_frame: map
     base_frame: base_link
     scan_topic: /scan
-    
-    transform_publish_period: 0.02   # 50 Hz TF updates for ultra-smooth
-    map_update_interval: 0.15        # 6.7 Hz map updates - VERY FAST corrections
-    
-    # === SOLVER CONFIG ===
-    solver_plugin: solver_plugins::CeresSolver
-    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
-    ceres_preconditioner: SCHUR_JACOBI
-    ceres_trust_strategy: LEVENBERG_MARQUARDT
-    ceres_dogleg_type: TRADITIONAL_DOGLEG
-    
-    # === CONVERGENCE & STABILITY ===
+    mode: mapping
+
+    # --- 5. PERFORMANCES ET MÉMOIRE ---
+    # On augmente le buffer pour que Ceres ne bloque pas le flux
+    scan_buffer_size: 50
+    stack_size_to_use: 150000000     
     resolution: 0.05
-    max_laser_range: 5.0
-    min_laser_range: 0.15
     
-    # === SCAN MATCHING (maximize LIDAR trust) === ANTI-DRIFT
-    use_scan_matching: true
-    use_scan_barycenter: true
-    
-    # CRITICAL: How much to trust scans vs odometry
-    # Lower values = MORE trust in LiDAR (better for drift correction)
-    minimum_time_interval: 0.0       # NO DELAY - update immediately on any motion
-    
-    # Scan matching search space (larger = better drift correction)
-    correlation_search_space_dimension: 0.5    # Search ±0.5m around odom estimate
-    correlation_search_space_resolution: 0.01  # 1cm resolution
-    correlation_search_space_smear_deviation: 0.05
-    
-    # Angular search for rotation drift correction - AGGRESSIVE
-    coarse_search_angle_offset: 0.87           # ±50° initial search (was ±20°)
-    fine_search_angle_offset: 0.17             # ±10° fine tuning (was ±0.5°)
-    coarse_angle_resolution: 0.0349            # 2° steps in coarse
-    
-    # Response thresholds (lower = more corrections applied) - ULTRA PERMISSIVE
-    minimum_response_coarse: 0.05              # Accept almost anything
-    minimum_response_fine: 0.10                # Very low threshold
-    
-    # INSTANT response to any movement
-    minimum_travel_distance: 0.02    # 2cm minimum (was 5cm - more reactive)
-    minimum_travel_heading: 0.02     # ~1° minimum rotation (was ~3° - catch faster)
-    
-    scan_buffer_size: 30             # Larger scan history for better matching
-    scan_buffer_maximum_scan_distance: 10.0
-    link_match_minimum_response_fine: 0.2
-    link_scan_maximum_distance: 1.5
-    
-    # === LOOP CLOSURE (detect when revisiting areas) === AGGRESSIVE
-    do_loop_closing: true
-    loop_search_maximum_distance: 4.0      # Aggressive loop detection
-    loop_match_minimum_chain_size: 3       # Lower = more sensitive
-    loop_match_maximum_variance_queue_size: 5
-    loop_match_minimum_response_fine: 0.1
-    loop_match_minimum_response_coarse: 0.3
-    loop_search_space_dimension: 8.0
-    loop_search_space_resolution: 0.05
-    loop_search_space_smear_deviation: 0.03
-    
-    publish_pose_graph: false
-    publish_tf: true
-    enable_interactive_mode: true
-    
-    # === ODOMETRY TRUST (lower = trust LiDAR more for drift correction) ===
-    # These tell SLAM: "odometry is uncertain, rely on scan matching"
-    tf_buffer_duration: 30.0
+    # --- 6. TIMING ---
+    publish_period: 0.02             
+    transform_publish_period: 0.02
     transform_timeout: 0.2
-    
-    # Debug
-    debug_logging: false

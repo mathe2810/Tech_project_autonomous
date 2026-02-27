@@ -16,8 +16,8 @@ class OdomFusion(Node):
         super().__init__('odom_fusion')
         
         # Parameters
-        self.declare_parameter('rf2o_weight', 0.8)  # rf2o is more reliable
-        self.declare_parameter('motor_weight', 0.2)  # motor backup
+        self.declare_parameter('rf2o_weight', 1.0)  # rf2o only
+        self.declare_parameter('motor_weight', 0.0)  # motor ignored
         
         self.rf2o_weight = self.get_parameter('rf2o_weight').value
         self.motor_weight = self.get_parameter('motor_weight').value
@@ -55,40 +55,44 @@ class OdomFusion(Node):
         """Fuse odometries"""
         if self.rf2o_odom is None or self.motor_odom is None:
             return
-        
-        # Weighted fusion
-        fused = Odometry()
-        fused.header.stamp = self.get_clock().now().to_msg()
-        fused.header.frame_id = 'odom'
-        fused.child_frame_id = 'base_link'
-        
-        # Position: RF2O primary (LIDAR-based is accurate), motor as backup
-        fused.pose.pose.position.x = (
-            self.rf2o_weight * self.rf2o_odom.pose.pose.position.x +
-            self.motor_weight * self.motor_odom.pose.pose.position.x
+
+        # Fallback: if rf2o pose is not updated (covariance too high or pose unchanged), use motor odom
+        rf2o_cov = self.rf2o_odom.pose.covariance[0] + self.rf2o_odom.pose.covariance[7]
+        pose_changed = (
+            abs(self.rf2o_odom.pose.pose.position.x - self.motor_odom.pose.pose.position.x) > 0.01 or
+            abs(self.rf2o_odom.pose.pose.position.y - self.motor_odom.pose.pose.position.y) > 0.01
         )
-        fused.pose.pose.position.y = (
-            self.rf2o_weight * self.rf2o_odom.pose.pose.position.y +
-            self.motor_weight * self.motor_odom.pose.pose.position.y
-        )
-        
-        # Orientation: Take from rf2o (more accurate for heading)
-        fused.pose.pose.orientation = self.rf2o_odom.pose.pose.orientation
-        
-        # Velocity: Average
-        fused.twist.twist.linear.x = (
-            self.rf2o_weight * self.rf2o_odom.twist.twist.linear.x +
-            self.motor_weight * self.motor_odom.twist.twist.linear.x
-        )
-        fused.twist.twist.angular.z = (
-            self.rf2o_weight * self.rf2o_odom.twist.twist.angular.z +
-            self.motor_weight * self.motor_odom.twist.twist.angular.z
-        )
-        
-        # Covariance: Take rf2o's (it's computed from scan matching quality)
-        fused.pose.covariance = self.rf2o_odom.pose.covariance
-        fused.twist.covariance = self.rf2o_odom.twist.covariance
-        
+        if rf2o_cov > 10.0 or not pose_changed:
+            # Publish motor odom
+            fused = self.motor_odom
+            fused.header.stamp = self.get_clock().now().to_msg()
+            fused.header.frame_id = 'odom'
+            fused.child_frame_id = 'base_link'
+        else:
+            # Weighted fusion (rf2o dominant)
+            fused = Odometry()
+            fused.header.stamp = self.get_clock().now().to_msg()
+            fused.header.frame_id = 'odom'
+            fused.child_frame_id = 'base_link'
+            fused.pose.pose.position.x = (
+                self.rf2o_weight * self.rf2o_odom.pose.pose.position.x +
+                self.motor_weight * self.motor_odom.pose.pose.position.x
+            )
+            fused.pose.pose.position.y = (
+                self.rf2o_weight * self.rf2o_odom.pose.pose.position.y +
+                self.motor_weight * self.motor_odom.pose.pose.position.y
+            )
+            fused.pose.pose.orientation = self.rf2o_odom.pose.pose.orientation
+            fused.twist.twist.linear.x = (
+                self.rf2o_weight * self.rf2o_odom.twist.twist.linear.x +
+                self.motor_weight * self.motor_odom.twist.twist.linear.x
+            )
+            fused.twist.twist.angular.z = (
+                self.rf2o_weight * self.rf2o_odom.twist.twist.angular.z +
+                self.motor_weight * self.motor_odom.twist.twist.angular.z
+            )
+            fused.pose.covariance = self.rf2o_odom.pose.covariance
+            fused.twist.covariance = self.rf2o_odom.twist.covariance
         self.odom_pub.publish(fused)
 
 def main(args=None):
