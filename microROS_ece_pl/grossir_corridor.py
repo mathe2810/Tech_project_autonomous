@@ -3,7 +3,7 @@ import numpy as np
 from scipy.ndimage import binary_dilation
 
 # Charger l'image
-img = Image.open('image_inversee.png').convert('L')
+img = Image.open('image.png').convert('L')
 arr = np.array(img)
 
 # Binariser : True pour le blanc (corridor), False pour le noir (mur)

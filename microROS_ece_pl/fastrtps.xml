@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<dds>
+  <profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+    <transport_descriptors>
+      <transport_descriptor>
+        <transport_id>builtin_udp</transport_id>
+        <type>UDPv4</type>
+      </transport_descriptor>
+    </transport_descriptors>
+    <participant_profile>
+      <name>default_participant</name>
+      <transport_descriptors>
+        <transport_descriptor ref="builtin_udp" />
+      </transport_descriptors>
+    </participant_profile>
+  </profiles>
+</dds>

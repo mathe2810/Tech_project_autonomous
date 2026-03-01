@@ -1,35 +1,26 @@
 slam_toolbox:
   ros__parameters:
-    # --- 1. ALIGNEMENT LIDAR (Supprime les WARNINGS de range) ---
-    # Ton script Python dit 0.1 et 5.0, donc on met EXACTEMENT pareil ici
-    max_laser_range: 5.0             
-    minimum_time_interval: 0.0001    # Ne pas filtrer les scans par le temps
-    
-    # --- 2. LE SOLVEUR (On laisse Ceres faire sa vie avec ses 50 threads) ---
     solver_plugin: solver_plugins::CeresSolver
-    do_loop_closure: true
-    
-    # --- 3. TON RÉGLAGE D'ANGLE FAVORI (Réactivité max) ---
-    use_odometry: true
-    minimum_travel_distance: 0.0     
-    minimum_travel_heading: 0.0      
-    angle_variance_penalty: 2.0      
-    distance_variance_penalty: 0.1
+    max_iterations: 40
+    huber_scale: 0.1 # Plus de souplesse sur les erreurs de calcul
 
-    # --- 4. CONFIGURATION DES FRAMES ---
-    odom_frame: odom
-    map_frame: map
-    base_frame: base_link
-    scan_topic: /scan
-    mode: mapping
+    # --- SÉCURITÉ TF ---
+    transform_timeout: 0.5 # On laisse plus de temps au système pour synchroniser
+    tf_buffer_duration: 10.0
 
-    # --- 5. PERFORMANCES ET MÉMOIRE ---
-    # On augmente le buffer pour que Ceres ne bloque pas le flux
-    scan_buffer_size: 50
-    stack_size_to_use: 150000000     
-    resolution: 0.05
-    
-    # --- 6. TIMING ---
-    publish_period: 0.02             
-    transform_publish_period: 0.02
-    transform_timeout: 0.2
+    # --- MODE SCAN MATCHING DOMINANT ---
+    use_scan_matching: true
+    # On met des pénalités TRÈS FAIBLES (0.01) pour que le SLAM ignore 
+    # presque l'odométrie et se recale sur les formes
+    angle_variance_penalty: 0.01    
+    distance_variance_penalty: 0.01 
+
+    # On cherche BEAUCOUP plus large pour ne jamais perdre le mur
+    coarse_search_angle_offset: 1.5
+    coarse_angle_resolution: 0.005
+    correlation_search_space_dimension: 4.0 
+
+    # --- FRÉQUENCE ---
+    minimum_time_interval: 0.1
+    minimum_travel_distance: 0.05
+    minimum_travel_heading: 0.05

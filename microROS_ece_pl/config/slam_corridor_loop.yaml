@@ -1,0 +1,69 @@
+slam_toolbox:
+  ros__parameters:
+    # --- GENERAL ---
+    use_sim_time: false
+    mode: mapping
+    scan_topic: /scan
+    odom_topic: /odom_rf2o
+    odom_frame: odom
+    base_frame: base_link
+    map_frame: map
+    scan_queue_size: 20                        # Conservateur
+    
+    # --- SOLVER ---
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: HuberLoss
+    
+    # --- MAP UPDATE ---
+    map_update_interval: 0.3       # Plus rapide pour corrections temps réel
+    resolution: 0.05
+    
+    # --- SCAN MATCHING DÉSACTIVÉ - Suivre RF2O uniquement ---
+    use_scan_matching: false           # ❌ OFF - laisse RF2O faire tout le travail
+    use_response_expansion: true
+    minimum_travel_distance: 0.05
+    minimum_travel_heading: 0.05
+    minimum_time_interval: 0.05
+    
+    # ⭐ LOOP CLOSURE - DÉSACTIVÉ (cause divergence catastrophique) ---
+    do_loop_closing: false
+    
+    # --- SEARCH SPACE (conservateur) ---
+    correlation_search_space_dimension: 0.5    # CONSERVATEUR - pas trop loin de l'odom
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+    loop_search_space_dimension: 8.0           # Modéré
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.1
+    
+    # --- ANGLE SEARCH (optimisé pour virages) ---
+    coarse_search_angle_offset: 0.8            # Plus large pour détecter erreurs rotation
+    coarse_angle_resolution: 0.0262            # 1.5° - plus fin
+    fine_search_angle_offset: 0.3              # Double l'espace de recherche fine
+    fine_angle_resolution: 0.00436             # 0.25° - très fin pour virages
+    
+    # --- VARIANCE PENALTIES (ULTRA STRICT - coller à RF2O) ---
+    angle_variance_penalty: 1.0               # ULTRA STRICT - ne quasi jamais s'écarter
+    distance_variance_penalty: 1.0            # ULTRA STRICT - rester collé à RF2O
+    
+    # --- OPTIMIZATION (renforcé) ---
+    max_iterations: 20             # AUGMENTÉ pour meilleure convergence graphe
+    num_threads: 4
+    
+    # --- LINK MATCHING ---
+    link_match_minimum_response_fine: 0.6
+    link_scan_maximum_distance: 2.0
+    
+    # --- STABILIZATION (augmenté pour éviter message dropping) ---
+    tf_buffer_duration: 60.0
+    transform_timeout: 2.0
+    
+    # --- OCCUPANCY GRID ---
+    occupied_threshold: 65
+    free_threshold: 25
+    
+    # --- DEBUG ---
+    debug_logging: true
+    log_raw_scans: true
+    log_matching_matrices: true

@@ -5,22 +5,13 @@ CLaserOdometry2DNode:
     base_frame_id: base_link
     odom_frame_id: odom
     init_pose_from_topic: ""
-    freq: 20.0
+    freq: 30.0                      # ⬆️ AUGMENTÉ - plus de mises à jour = plus précis
     publish_tf: true
     max_linear_speed: 1.0
     max_angular_speed: 3.0
-    max_iterations: 100
-    
-    # --- OPTIMISATION ---
-    # 300 itérations c'est trop, ça peut créer du lag CPU qui décale les scans. 
-    # 30 à 50 itérations suffisent amplement si le LiDAR est propre.
-    max_iterations: 50           # Moins d'itérations pour éviter le lag et le drift
-    tolerance: 1e-6              # Encore plus strict pour éviter le drift
-    
-    # --- FILTRES ANTI-DRIFT (Ajoute ces lignes si possible) ---
-    motion_filter_linear: 0.04   # Ignore les corrections sur petits déplacements (4cm)
-    motion_filter_angular: 0.02  # Ignore les corrections sur petites rotations (1.2°)
-    max_laser_range: 1.2         # Limite la portée pour éviter le bruit
+    max_iterations: 50              # ⬆️ AUGMENTÉ pour convergence optimale
+    tolerance: 1e-7                 # Plus strict pour précision maximale
+    motion_filter_linear: 0.001     # ⬇️ TRÈS SENSIBLE - capture tout (1mm)
+    motion_filter_angular: 0.001    # ⬇️ TRÈS SENSIBLE - capture tout (0.057°)
+    max_laser_range: 6.0            # Full range from our simulator
     debug: true
-    verbose: true
-    num_threads: 12

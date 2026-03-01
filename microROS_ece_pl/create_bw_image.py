@@ -2,8 +2,8 @@ from PIL import Image
 import numpy as np
 
 # Charge l'image existante
-img = Image.open('image.png').convert('RGB')
-arr = np.array(img)
+img = Image.open('pngegg.png').convert('RGB')
+arr = np.array(img, dtype=np.uint8, copy=True)
 
 # Seuils pour noir/blanc
 black_thresh = 60
