@@ -16,16 +16,20 @@ class SimuBridge(Node):
             history=HistoryPolicy.KEEP_LAST,
             depth=10
         )
-        self.scan_pub = self.create_publisher(LaserScan, '/scan_raw', qos)
+        self.scan_pub = self.create_publisher(LaserScan, '/scan', qos)
         self.odom_gt_pub = self.create_publisher(Odometry, '/odom_ground_truth', qos)
         self._buf = b''
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             self.sock.connect(('127.0.0.1', 5005))
             self.sock.setblocking(False)
-            self.get_logger().info('✅ Bridge connecté -> /scan_raw')
+            self.get_logger().info('✅ Bridge connecté -> /scan')
         except Exception as e:
             self.get_logger().error(f"Erreur connexion : {e}")
+        
+        # Throttle scans to reduce SLAM Message Filter overload
+        self.scan_count = 0
+        self.scan_throttle = 2  # Publish 1 scan every 2 scans (50% reduction)
         
         # Utilise un Timer ROS au lieu de spin_once
         self.create_timer(0.01, self.update)
@@ -49,24 +53,21 @@ class SimuBridge(Node):
                 scan.header.frame_id = 'laser_link'
                 
                 num_rays = len(data['ranges'])
-                # Convention ROS: angle_min négatif (gauche), angle_max positif (droite)
-                # Réorganiser les rayons pour que index 0 = arrière gauche
                 scan.angle_min = -math.pi
-                scan.angle_max = math.pi
                 scan.angle_increment = (2.0 * math.pi) / num_rays
+                scan.angle_max = scan.angle_min + (num_rays - 1) * scan.angle_increment
                 scan.time_increment = 0.0
                 scan.range_min = 0.15
                 scan.range_max = 6.0
                 
-                # Réorganiser: rayon 0 du simulateur = avant (theta)
-                # -> doit devenir rayon N/2 dans ROS (avant = 0 radians)
-                raw_ranges = data['ranges']
-                half = num_rays // 2
-                # Rotation: mettre le rayon "avant" au milieu
-                scan.ranges = [float(r) for r in (raw_ranges[half:] + raw_ranges[:half])]
+                # Garder les rayons dans l'ordre - le simulateur les envoie déjà bien
+                scan.ranges = [float(r) for r in data['ranges']]
                 scan.intensities = []
                 
-                self.scan_pub.publish(scan)
+                # Apply throttle: publish 1 out of N scans
+                self.scan_count += 1
+                if self.scan_count % self.scan_throttle == 0:
+                    self.scan_pub.publish(scan)
                 
                 # Publier l'odométrie de vérité terrain (ground truth)
                 if 'pose' in data:

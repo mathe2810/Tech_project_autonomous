@@ -36,12 +36,14 @@ ALPHA_ROT = 0.95          # Amortissement très fort (comme wall_centering)
 DEADZONE = 0.15           # Zone morte AUGMENTÉE (mètres) - pour rester au centre sans osciller
 GAIN_ROT = 0.4            # Gain très doux pour "glisser" dans les virages
 MIN_ROTATION = 0.38       # Seuil minimal pour faire bouger les moteurs
+MAX_LINEAR_SPEED = 0.7    # Cap global vitesse linéaire (px/frame)
+MAX_ANGULAR_SPEED = 0.03  # Cap global rotation (rad/frame)
 
 # DÉLAI DE DÉMARRAGE - Attend que SLAM soit prêt avant d'activer autonome
-STARTUP_DELAY_SECONDS = 10.0  # ⏱️ 10 secondes pour laisser SLAM s'initialiser complètement
+STARTUP_DELAY_SECONDS = 15.0  # ⏱️ 15 secondes pour laisser SLAM s'initialiser complètement
 
 # ARRÊT AUTOMATIQUE AU RETOUR - Pour mapper un circuit complet
-AUTO_STOP_DISTANCE = 0.5      # Distance au départ pour arrêt automatique (mètres)
+AUTO_STOP_DISTANCE = 0.05      # Distance au départ pour arrêt automatique (mètres)
 MIN_DISTANCE_TRAVELED = 3.0   # Distance minimale avant de permettre l'arrêt (évite arrêt immédiat)
 
 auto_mode = False         # ⏳ Démarre en MANUEL, s'activera automatiquement après délai
@@ -140,8 +142,9 @@ def autonomous_control(ranges):
     else:
         speed = CRUISE_SPEED * 0.7   # Ralenti si mur devant
     
-    # Limite rotation (comme wall_centering_node: ±0.7)
-    rotation = np.clip(smoothed_w, -0.7, 0.7)
+    # Limite rotation avec cap global
+    rotation = np.clip(smoothed_w, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED)
+    speed = min(speed, MAX_LINEAR_SPEED)
     
     return speed, rotation, dist_l, dist_r, dist_f, emergency_mode, warning_mode
 
@@ -249,12 +252,12 @@ while run:
     else:
         # Mode manuel (clavier)
         k = pygame.key.get_pressed()
-        if k[pygame.K_LEFT]:  robot_th -= 0.08
-        if k[pygame.K_RIGHT]: robot_th += 0.08
+        if k[pygame.K_LEFT]:  robot_th -= MAX_ANGULAR_SPEED
+        if k[pygame.K_RIGHT]: robot_th += MAX_ANGULAR_SPEED
         if k[pygame.K_UP]:
-            robot_pos[0] += 3.0 * math.cos(robot_th)
-            robot_pos[1] += 3.0 * math.sin(robot_th)
-        speed = 3.0 if k[pygame.K_UP] else 0.0
+            robot_pos[0] += MAX_LINEAR_SPEED * math.cos(robot_th)
+            robot_pos[1] += MAX_LINEAR_SPEED * math.sin(robot_th)
+        speed = MAX_LINEAR_SPEED if k[pygame.K_UP] else 0.0
         rotation = 0.0
         emergency_mode = False
         warning_mode = False

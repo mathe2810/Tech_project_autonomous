@@ -48,9 +48,9 @@ class OdomComparator(Node):
         return math.atan2(2*(q.w*q.z + q.x*q.y), 1 - 2*(q.y*q.y + q.z*q.z))
     
     def compare(self):
-        if not self.gt or not self.rf2o:
+        if not self.gt:
             if self.count % 5 == 0:
-                self.get_logger().warning('⏳ Waiting for Ground Truth and RF2O...')
+                self.get_logger().warning('⏳ Waiting for Ground Truth...')
             self.count += 1
             return
         
@@ -64,17 +64,17 @@ class OdomComparator(Node):
         y_gt = self.gt.pose.pose.position.y - self.initial_gt_y
         yaw_gt = self.quat_to_yaw(self.gt.pose.pose.orientation)
         
-        x_rf2o = self.rf2o.pose.pose.position.x
-        y_rf2o = self.rf2o.pose.pose.position.y
-        yaw_rf2o = self.quat_to_yaw(self.rf2o.pose.pose.orientation)
-        
-        # Calculate RF2O errors
-        err_x_rf2o = x_rf2o - x_gt
-        err_y_rf2o = y_rf2o - y_gt
-        err_dist_rf2o = math.sqrt(err_x_rf2o**2 + err_y_rf2o**2)
-        err_yaw_rf2o = yaw_rf2o - yaw_gt
-        while err_yaw_rf2o > math.pi: err_yaw_rf2o -= 2*math.pi
-        while err_yaw_rf2o < -math.pi: err_yaw_rf2o += 2*math.pi
+        rf2o_available = self.rf2o is not None
+        if rf2o_available:
+            x_rf2o = self.rf2o.pose.pose.position.x
+            y_rf2o = self.rf2o.pose.pose.position.y
+            yaw_rf2o = self.quat_to_yaw(self.rf2o.pose.pose.orientation)
+            err_x_rf2o = x_rf2o - x_gt
+            err_y_rf2o = y_rf2o - y_gt
+            err_dist_rf2o = math.sqrt(err_x_rf2o**2 + err_y_rf2o**2)
+            err_yaw_rf2o = yaw_rf2o - yaw_gt
+            while err_yaw_rf2o > math.pi: err_yaw_rf2o -= 2*math.pi
+            while err_yaw_rf2o < -math.pi: err_yaw_rf2o += 2*math.pi
         
         # Get SLAM position from TF (map->base_link)
         slam_available = False
@@ -120,11 +120,17 @@ class OdomComparator(Node):
             f"\n🎯 GROUND TRUTH:\n"
             f"   Position:  x={x_gt:7.3f}m  y={y_gt:7.3f}m\n"
             f"   Heading:   θ={math.degrees(yaw_gt):7.1f}°\n"
-            f"\n🔴 RF2O (Raw Laser Odometry):\n"
-            f"   Position:  x={x_rf2o:7.3f}m  y={y_rf2o:7.3f}m\n"
-            f"   Heading:   θ={math.degrees(yaw_rf2o):7.1f}°\n"
-            f"   Error:     Δx={err_x_rf2o:+7.3f}m  Δy={err_y_rf2o:+7.3f}m  dist={err_dist_rf2o:6.3f}m  Δθ={math.degrees(err_yaw_rf2o):+6.1f}°\n"
         )
+
+        if rf2o_available:
+            msg += (
+                f"\n🔴 RF2O (Raw Laser Odometry):\n"
+                f"   Position:  x={x_rf2o:7.3f}m  y={y_rf2o:7.3f}m\n"
+                f"   Heading:   θ={math.degrees(yaw_rf2o):7.1f}°\n"
+                f"   Error:     Δx={err_x_rf2o:+7.3f}m  Δy={err_y_rf2o:+7.3f}m  dist={err_dist_rf2o:6.3f}m  Δθ={math.degrees(err_yaw_rf2o):+6.1f}°\n"
+            )
+        else:
+            msg += f"\n🟡 RF2O: Not available (SLAM-only mode)\n"
         
         if slam_available:
             msg += (
@@ -132,10 +138,16 @@ class OdomComparator(Node):
                 f"   Position:  x={x_slam:7.3f}m  y={y_slam:7.3f}m\n"
                 f"   Heading:   θ={math.degrees(yaw_slam):7.1f}°\n"
                 f"   Error:     Δx={slam_err_x:+7.3f}m  Δy={slam_err_y:+7.3f}m  dist={slam_err_dist:6.3f}m  Δθ={math.degrees(slam_err_yaw):+6.1f}°\n"
-                f"\n📈 IMPROVEMENT with SLAM:\n"
-                f"   Position:  {err_dist_rf2o:6.3f}m → {slam_err_dist:6.3f}m  ({(1-slam_err_dist/max(err_dist_rf2o, 0.001))*100:+6.1f}%)\n"
-                f"   Heading:   {abs(math.degrees(err_yaw_rf2o)):6.1f}° → {abs(math.degrees(slam_err_yaw)):6.1f}°\n"
+                f"\n📈 SLAM vs Ground Truth:\n"
+                f"   Position error: {slam_err_dist:6.3f}m\n"
+                f"   Heading error:  {abs(math.degrees(slam_err_yaw)):6.1f}°\n"
             )
+            if rf2o_available:
+                msg += (
+                    f"\n📈 IMPROVEMENT with SLAM:\n"
+                    f"   Position:  {err_dist_rf2o:6.3f}m → {slam_err_dist:6.3f}m  ({(1-slam_err_dist/max(err_dist_rf2o, 0.001))*100:+6.1f}%)\n"
+                    f"   Heading:   {abs(math.degrees(err_yaw_rf2o)):6.1f}° → {abs(math.degrees(slam_err_yaw)):6.1f}°\n"
+                )
         else:
             msg += f"\n🟡 SLAM: Not available yet (waiting for map->base_link TF)...\n"
         

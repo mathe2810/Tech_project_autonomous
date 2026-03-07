@@ -16,9 +16,17 @@ class ScanRestamperSimu(Node):
         self.sub = self.create_subscription(LaserScan, '/scan_raw', self.callback, qos)
         self.pub = self.create_publisher(LaserScan, '/scan', qos)
         self.scan_count = 0
+        self.target_hz = 15.0
+        self.min_period_ns = int(1e9 / self.target_hz)
+        self.last_pub_ns = 0
         self.get_logger().info('✅ Restamper démarré - Inpute: /scan_raw -> Output: /scan')
 
     def callback(self, msg):
+        now_ns = self.get_clock().now().nanoseconds
+        if self.last_pub_ns and (now_ns - self.last_pub_ns) < self.min_period_ns:
+            return
+        self.last_pub_ns = now_ns
+
         # Mets à jour le timestamp avec l'horloge ROS courante
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "laser_link"

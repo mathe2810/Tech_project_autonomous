@@ -47,6 +47,10 @@ ros2 run slam_toolbox async_slam_toolbox_node \
   --params-file config/slam_corridor_loop.yaml &
 sleep 1
 
+echo "7️⃣  Map Saver (PNG debug)..."
+python3 slam_map_saver.py &
+sleep 1
+
 echo ""
 echo "==========================================="
 echo "✅ READY!"

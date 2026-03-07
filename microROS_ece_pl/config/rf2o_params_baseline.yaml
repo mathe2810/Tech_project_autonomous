@@ -1,0 +1,30 @@
+CLaserOdometry2DNode:
+  ros__parameters:
+    laser_scan_topic: /scan
+    odom_topic: /odom_rf2o
+    base_frame_id: base_link
+    odom_frame_id: odom
+    init_pose_from_topic: ""
+    
+    # ⏱️ Fréquence: alignée sur simulateur (~30 Hz)
+    freq: 30.0
+    
+    # 📏 Portée LIDAR
+    max_laser_range: 6.0
+    min_range: 0.10
+    
+    # 🔧 Convergence scan-matching
+    max_iterations: 50
+    tolerance: 1e-7
+    
+    # 🎯 Filtre mouvement: standard (pas hyper-sensible)
+    motion_filter_linear: 0.001
+    motion_filter_angular: 0.001
+    
+    # 🔄 Output
+    publish_tf: true
+    max_linear_speed: 1.0
+    max_angular_speed: 3.0
+    
+    # 📊 Debug
+    debug: false
