@@ -5,6 +5,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Quaternion, Twist
+from std_srvs.srv import Empty
 import socket, pickle, struct, math, time
 import threading
 
@@ -31,10 +32,21 @@ class SimuBridge(Node):
         self.scan_count = 0
         self.scan_throttle = 2  # Publish 1 scan every 2 scans (50% reduction)
         
+        # Flag pour geler les scans (arrêt SLAM et fige la carte)
+        self.scan_frozen = False
+        self.create_service(Empty, 'freeze_scan', self.handle_freeze_scan)
+        
         # Utilise un Timer ROS au lieu de spin_once
         self.create_timer(0.01, self.update)
 
+    def handle_freeze_scan(self, request, response):
+        """Service handler pour geler les scans (arrêt SLAM mapping)"""
+        self.scan_frozen = True
+        self.get_logger().info("🔒 Scans FIGÉS - SLAM mapping arrêté, carte gelée")
+        return response
+
     def update(self):
+        """Timer callback pour lire les données du simulateur"""
         try:
             chunk = self.sock.recv(65536)
             if not chunk: return
@@ -47,27 +59,28 @@ class SimuBridge(Node):
                 
                 now = self.get_clock().now().to_msg()
                 
-                # Publier le scan LaserScan
-                scan = LaserScan()
-                scan.header.stamp = now
-                scan.header.frame_id = 'laser_link'
-                
-                num_rays = len(data['ranges'])
-                scan.angle_min = -math.pi
-                scan.angle_increment = (2.0 * math.pi) / num_rays
-                scan.angle_max = scan.angle_min + (num_rays - 1) * scan.angle_increment
-                scan.time_increment = 0.0
-                scan.range_min = 0.15
-                scan.range_max = 1.0  # Réduit à 1.0m pour minimiser le bruit blanc SLAM
-                
-                # Garder les rayons dans l'ordre - le simulateur les envoie déjà bien
-                scan.ranges = [float(r) for r in data['ranges']]
-                scan.intensities = []
-                
-                # Apply throttle: publish 1 out of N scans
-                self.scan_count += 1
-                if self.scan_count % self.scan_throttle == 0:
-                    self.scan_pub.publish(scan)
+                # Publier le scan LaserScan (sauf si figé)
+                if not self.scan_frozen:
+                    scan = LaserScan()
+                    scan.header.stamp = now
+                    scan.header.frame_id = 'laser_link'
+                    
+                    num_rays = len(data['ranges'])
+                    scan.angle_min = -math.pi
+                    scan.angle_increment = (2.0 * math.pi) / num_rays
+                    scan.angle_max = scan.angle_min + (num_rays - 1) * scan.angle_increment
+                    scan.time_increment = 0.0
+                    scan.range_min = 0.15
+                    scan.range_max = 1.0  # Réduit à 1.0m pour minimiser le bruit blanc SLAM
+                    
+                    # Garder les rayons dans l'ordre - le simulateur les envoie déjà bien
+                    scan.ranges = [float(r) for r in data['ranges']]
+                    scan.intensities = []
+                    
+                    # Apply throttle: publish 1 out of N scans
+                    self.scan_count += 1
+                    if self.scan_count % self.scan_throttle == 0:
+                        self.scan_pub.publish(scan)
                 
                 # Publier l'odométrie de vérité terrain (ground truth)
                 if 'pose' in data:
