@@ -58,7 +58,7 @@ class SimuBridge(Node):
                 scan.angle_max = scan.angle_min + (num_rays - 1) * scan.angle_increment
                 scan.time_increment = 0.0
                 scan.range_min = 0.15
-                scan.range_max = 6.0
+                scan.range_max = 1.0  # Réduit à 1.0m pour minimiser le bruit blanc SLAM
                 
                 # Garder les rayons dans l'ordre - le simulateur les envoie déjà bien
                 scan.ranges = [float(r) for r in data['ranges']]

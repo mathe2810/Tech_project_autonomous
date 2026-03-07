@@ -43,21 +43,28 @@ MAX_ANGULAR_SPEED = 0.03  # Cap global rotation (rad/frame)
 STARTUP_DELAY_SECONDS = 15.0  # ⏱️ 15 secondes pour laisser SLAM s'initialiser complètement
 
 # ARRÊT AUTOMATIQUE AU RETOUR - Pour mapper un circuit complet
+ENABLE_AUTO_STOP = True        # 🔄 True = Arrêt auto en 2 phases (retour puis +2m), False = boucle continue
 AUTO_STOP_DISTANCE = 0.05      # Distance au départ pour arrêt automatique (mètres)
 MIN_DISTANCE_TRAVELED = 3.0   # Distance minimale avant de permettre l'arrêt (évite arrêt immédiat)
+EXTRA_DISTANCE_AFTER_RETURN = 2.0  # Distance à parcourir APRÈS retour au départ avant arrêt (mètres)
 
 auto_mode = False         # ⏳ Démarre en MANUEL, s'activera automatiquement après délai
 startup_timer = 0.0       # Compteur pour activer auto après délai
 max_distance_reached = 0.0  # Distance max atteinte depuis le départ
 prev_w = 0.0              # Rotation précédente (filtre)
+loop_return_detected = False
+extra_distance_after_return = 0.0
+last_robot_pos_for_stop = robot_pos.copy()
 
 def get_lidar_ranges(pos, theta):
     ranges = []
+    max_range = 2.0  # Portée LIDAR (m)
     for i in range(NUM_RAYS):
         angle = (2.0 * math.pi * i / NUM_RAYS) + theta
         cos_a, sin_a = math.cos(angle), math.sin(angle)
-        dist = 6.0
-        for r in range(5, int(6.0/MAP_RES), 2):
+        dist = max_range
+        # Step=1 au lieu de 2 pour ne pas sauter de pixels dans les coins
+        for r in range(5, int(max_range/MAP_RES), 1):
             tx, ty = int(pos[0] + r*cos_a), int(pos[1] + r*sin_a)
             if not (0 <= tx < WIDTH and 0 <= ty < HEIGHT) or circuit_surf.get_at((tx, ty))[0] < 80:
                 dist = r * MAP_RES
@@ -311,14 +318,32 @@ while run:
     dist_to_start = math.sqrt((robot_pos[0]-start_pos[0])**2 + (robot_pos[1]-start_pos[1])**2)
     dist_m = dist_to_start * MAP_RES
     
-    # 🔄 ARRÊT AUTOMATIQUE AU RETOUR (tour complet mappé)
+    # 🔄 ARRÊT AUTOMATIQUE EN 2 PHASES
+    # 1) Détecte le retour près du départ après un tour complet
+    # 2) Continue encore EXTRA_DISTANCE_AFTER_RETURN puis stop
+    dx_step = robot_pos[0] - last_robot_pos_for_stop[0]
+    dy_step = robot_pos[1] - last_robot_pos_for_stop[1]
+    step_m = math.sqrt(dx_step*dx_step + dy_step*dy_step) * MAP_RES
+    last_robot_pos_for_stop = robot_pos.copy()
+
     if auto_mode and dist_m > max_distance_reached:
         max_distance_reached = dist_m
-    
-    if auto_mode and max_distance_reached > MIN_DISTANCE_TRAVELED and dist_m < AUTO_STOP_DISTANCE:
-        print(f"\n🎯 RETOUR AU DÉPART DÉTECTÉ! Distance: {dist_m:.2f}m (max atteint: {max_distance_reached:.2f}m)")
-        print("✅ CIRCUIT MAPPÉ - Arrêt automatique pour sauvegarder la carte")
-        run = False
+
+    if ENABLE_AUTO_STOP and auto_mode:
+        if (not loop_return_detected) and max_distance_reached > MIN_DISTANCE_TRAVELED and dist_m < AUTO_STOP_DISTANCE:
+            loop_return_detected = True
+            extra_distance_after_return = 0.0
+            print(f"\n🎯 RETOUR AU DÉPART DÉTECTÉ! Distance: {dist_m:.2f}m (max atteint: {max_distance_reached:.2f}m)")
+            print(f"➡️  Continue encore {EXTRA_DISTANCE_AFTER_RETURN:.2f}m pour compléter la carte...")
+        elif loop_return_detected:
+            extra_distance_after_return += step_m
+            if extra_distance_after_return >= EXTRA_DISTANCE_AFTER_RETURN:
+                print(
+                    f"✅ DISTANCE SUPPLÉMENTAIRE ATTEINTE: {extra_distance_after_return:.2f}m "
+                    f"(objectif {EXTRA_DISTANCE_AFTER_RETURN:.2f}m)"
+                )
+                print("🛑 Arrêt automatique - sauvegarde finale")
+                run = False
     
     # Robot (bleu)
     pygame.draw.circle(screen, (0,0,255), (int(robot_pos[0]), int(robot_pos[1])), 10)

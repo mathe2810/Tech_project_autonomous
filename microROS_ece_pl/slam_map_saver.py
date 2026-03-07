@@ -77,13 +77,39 @@ class SlamMapSaver(Node):
             # Inverser Y (ROS: origine en bas-gauche, image: origine en haut-gauche)
             img_array = np.flipud(img_array)
             
+            # 🔲 AUTO-CROP: Enlever les bordures vides (gris = inconnu)
+            # Trouve les limites de contenu intéressant (noir ou blanc exploré)
+            interesting_mask = (data != -1) & (data != 255)  # Tout sauf inconnu
+            
+            if np.any(interesting_mask):
+                # Trouver les rows/cols qui contiennent du contenu
+                rows_with_content = np.any(interesting_mask, axis=1)
+                cols_with_content = np.any(interesting_mask, axis=0)
+                
+                # Indices min/max
+                ymin, ymax = np.where(rows_with_content)[0][[0, -1]]
+                xmin, xmax = np.where(cols_with_content)[0][[0, -1]]
+                
+                # Ajouter petite marge (10 pixels)
+                margin = 10
+                ymin = max(0, ymin - margin)
+                ymax = min(height - 1, ymax + margin)
+                xmin = max(0, xmin - margin)
+                xmax = min(width - 1, xmax + margin)
+                
+                # Crop après flip
+                ymin_flip = height - 1 - ymax
+                ymax_flip = height - 1 - ymin
+                img_array = img_array[ymin_flip:ymax_flip+1, xmin:xmax+1]
+            
             # Sauvegarder
             img = Image.fromarray(img_array, 'RGB')
             img.save(self.output_path)
             
-            # Log
+            # Log (nouvelles dimensions après crop)
+            crop_h, crop_w = img_array.shape[:2]
             self.get_logger().info(
-                f'✅ [#{self.frame_count}] Carte sauvegardée: {width}x{height}px '
+                f'✅ [#{self.frame_count}] Carte sauvegardée: {width}x{height}px → cropped: {crop_w}x{crop_h}px '
                 f'(résolution: {msg.info.resolution:.3f}m/px) '
                 f'-> {self.output_path}'
             )
