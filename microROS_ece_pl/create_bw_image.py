@@ -2,7 +2,7 @@ from PIL import Image
 import numpy as np
 
 # Charge l'image existante
-img = Image.open('pngegg.png').convert('RGB')
+img = Image.open('image2.png').convert('RGB')
 arr = np.array(img, dtype=np.uint8, copy=True)
 
 # Seuils pour noir/blanc

@@ -42,8 +42,8 @@ server_sock.bind(('127.0.0.1', 5005))
 server_sock.listen(1)
 server_sock.setblocking(False)
 
-robot_pos, robot_th = [270.0, 250.0], 0.0
-start_pos = [270.0, 250.0]  # 🎯 POINT DE DÉPART - pour comparaison visuelle
+robot_pos, robot_th = [150.0, 250.0], 0.0
+start_pos = [150.0, 250.0]  # 🎯 POINT DE DÉPART - pour comparaison visuelle
 lidar_conn = None
 
 # --- PARAMÈTRES AUTONOMIE (EXACTEMENT wall_centering_node) ---
