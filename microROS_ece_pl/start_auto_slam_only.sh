@@ -5,14 +5,24 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
-WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 if [ -f /opt/ros/humble/setup.bash ]; then
   source /opt/ros/humble/setup.bash
 fi
 
-if [ -f "$WORKSPACE_ROOT/install/setup.bash" ]; then
-  source "$WORKSPACE_ROOT/install/setup.bash"
+WORKSPACE_SETUP=""
+SEARCH_DIR="$SCRIPT_DIR"
+while [ "$SEARCH_DIR" != "/" ]; do
+  CANDIDATE_SETUP="$SEARCH_DIR/install/setup.bash"
+  if [ -f "$CANDIDATE_SETUP" ]; then
+    WORKSPACE_SETUP="$CANDIDATE_SETUP"
+    break
+  fi
+  SEARCH_DIR="$(dirname "$SEARCH_DIR")"
+done
+
+if [ -n "$WORKSPACE_SETUP" ]; then
+  source "$WORKSPACE_SETUP"
 fi
 
 if ! ros2 pkg prefix slam_toolbox >/dev/null 2>&1; then
