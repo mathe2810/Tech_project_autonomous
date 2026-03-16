@@ -1,0 +1,143 @@
+EXPLICATION TRAJECTOIRE - PARTIE APRÈS WALL_CENTERING
+Date: 2026-03-16
+
+Contexte:
+Cette note décrit uniquement la phase qui commence APRÈS le mode wall centering,
+dans simu_lidar_auto.py: bascule vers retour planifié avec mode SIMPLE, A* et Nav2.
+
+
+1) QUAND ON QUITTE WALL_CENTERING
+
+Pendant auto_mode (wall centering), le système:
+- enregistre les points du premier tour (lap_points_m),
+- détecte le retour proche du départ,
+- continue encore une distance supplémentaire (EXTRA_DISTANCE_AFTER_RETURN).
+
+Quand cette distance est atteinte:
+- auto_mode est coupé,
+- SLAM est figé via stop_slam_and_freeze_map() (service /freeze_scan),
+- puis on lance la stratégie de retour.
+
+
+2) STRATÉGIE DE RETOUR: PRIORITÉ AU MODE SIMPLE
+
+Le choix est piloté par USE_SIMPLE_ASTAR_RETURN.
+
+Cas nominal (actuel): USE_SIMPLE_ASTAR_RETURN = True
+
+Étape A - chemin “boucle complète” (préféré)
+- build_simple_full_loop_path_px() reconstruit un chemin à partir du tour déjà enregistré.
+- Le chemin est:
+  - ré-échantillonné,
+  - optimisé par raccourcis sûrs (segment clearance),
+  - légèrement lissé.
+
+Si ce chemin existe (len > 1):
+- simple_return_mode = True
+- suivi local du chemin avec compute_simple_follow_command().
+
+Étape B - fallback A* (optionnel)
+- Si la boucle complète n’est pas exploitable:
+  - si SIMPLE_REQUIRE_FULL_LOOP=True et SIMPLE_ALLOW_ASTAR_FALLBACK=False,
+    on refuse le fallback (sécurité logique),
+  - sinon plan_astar_path_px(start=current, goal=point de départ) calcule un chemin grille.
+
+Si A* réussit:
+- simple_return_mode = True
+- suivi local PID du chemin A*.
+
+Si A* échoue:
+- passage en nav2_mode.
+
+
+3) MODE SIMPLE: COMMENT LE ROBOT SUIT LE CHEMIN
+
+Fonction clé: compute_simple_follow_command(robot_pos, robot_theta, dt)
+
+Principe:
+- sélection d’un point cible avancé (lookahead),
+- calcul erreur d’orientation,
+- commande angulaire PD,
+- vitesse linéaire modulée selon l’erreur angulaire,
+- freinage progressif près de la fin.
+
+Critère de fin:
+- dernier point atteint sous SIMPLE_GOAL_TOLERANCE_PX,
+- simple_return_mode repasse à False.
+
+Important:
+- ce mode n’utilise pas Nav2,
+- il applique directement le mouvement dans la simu,
+- il est déterministe et rapide.
+
+
+4) MODE NAV2: QUAND ET COMMENT IL PREND LE RELAIS
+
+Nav2 est utilisé si:
+- USE_SIMPLE_ASTAR_RETURN=False,
+- ou mode SIMPLE impossible/échoué.
+
+Préparation:
+- build_nav2_sequential_route_goals() génère une liste de goals map-frame,
+  orientés dans le bon sens de parcours.
+
+Exécution:
+- nav2_goal_pending pilote l’envoi progressif,
+- send_goal_to_start() envoie chaque goal via NavigateToPose,
+- quand GOAL_SUCCEEDED: on passe au goal suivant,
+- en cas GOAL_ABORTED/REJECTED/CANCELED: on saute au suivant.
+
+Particularité:
+- publish_frozen_map_to_odom_transform() maintient map->odom “vivant”
+  même quand SLAM est figé, pour éviter de casser Nav2.
+
+
+5) DIFFÉRENCE SIMPLE vs A* vs NAV2
+
+SIMPLE (boucle enregistrée):
+- source du chemin: trajectoire du 1er tour,
+- avantage: cohérent avec le couloir réellement parcouru,
+- limite: nécessite assez de points propres.
+
+A* fallback:
+- source du chemin: planification grille locale dans l’image de piste,
+- avantage: peut sauver un retour sans boucle complète,
+- limite: dépend de la qualité de la grille et des clearance.
+
+Nav2:
+- source du chemin: planificateur Nav2 (DDS + action server),
+- avantage: robuste côté navigation ROS2,
+- limite: plus complexe (actions, états, retries).
+
+
+6) MACHINE D’ÉTATS (APRÈS WALL_CENTERING)
+
+Etat 1: AUTO_MODE (wall centering)
+  -> condition: retour détecté + distance extra atteinte
+Etat 2: FREEZE_SLAM
+  -> condition: stratégie SIMPLE disponible ?
+Etat 3a: SIMPLE_RETURN_MODE
+  -> si terminé: FIN
+  -> si impossible: NAV2_MODE
+Etat 3b: NAV2_MODE
+  -> envoi goals séquentiels NavigateToPose
+  -> goals terminés: FIN
+
+
+7) PARAMÈTRES QUI PILOTENT CETTE PHASE
+
+- USE_SIMPLE_ASTAR_RETURN
+- SIMPLE_REQUIRE_FULL_LOOP
+- SIMPLE_ALLOW_ASTAR_FALLBACK
+- SIMPLE_GOAL_TOLERANCE_PX
+- SIMPLE_LOOKAHEAD_PX
+- SIMPLE_KP_HEADING / SIMPLE_KD_HEADING
+- NAV2_ROUTE_GOAL_SPACING
+- EXTRA_DISTANCE_AFTER_RETURN
+
+
+8) RÉSUMÉ COURT
+
+Après wall_centering, le système gèle SLAM puis tente d’abord un retour en mode SIMPLE
+(chemin du tour), sinon un fallback A*, et en dernier recours passe en Nav2 avec
+goals séquentiels pour finaliser le retour au départ.

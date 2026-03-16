@@ -1,0 +1,221 @@
+ARCHITECTURE LOGICIELLE (BLOCS) - microROS_ece_pl
+Date: 2026-03-16
+
+============================================================
+0) VUE GLOBALE PAR COUCHES
+============================================================
+
++----------------------------------------------------------+
+| COUCHE ORCHESTRATION                                     |
+|  - start_auto_slam_only.sh (simulation)                 |
+|  - start_robot_mapping_auto.sh (robot réel)             |
++------------------------------+---------------------------+
+                               |
++------------------------------v---------------------------+
+| COUCHE ROS2 NODES (Python/C++)                          |
+|  Perception | Odométrie | Contrôle | SLAM | TF          |
++------------------------------+---------------------------+
+                               |
++------------------------------v---------------------------+
+| COUCHE TRANSPORT / MIDDLEWARE                           |
+|  DDS ROS2 + topics (/scan, /cmd_vel, /odom, /tf, /map) |
++------------------------------+---------------------------+
+                               |
++------------------------------v---------------------------+
+| COUCHE HARDWARE / SIMULATION                            |
+|  Simulateur 2D OU ESP32 + LiDAR + base mobile           |
++----------------------------------------------------------+
+
+
+============================================================
+1) STACK DE SIMULATION (start_auto_slam_only.sh)
+============================================================
+
+OS / Runtime:
+- Hôte: Linux (Ubuntu) + ROS2 Humble
+- Nœuds lancés localement en Python / ROS2
+
+Bloc architecture (simulation):
+
++-------------------- Linux Ubuntu / ROS2 -------------------+
+|                                                             |
+|  +--------------------+     +----------------------------+ |
+|  | simu_lidar_auto.py | --> | simu_bridge.py            | |
+|  | (simulateur cap.)  |     | /scan + /odom_ground_truth| |
+|  +--------------------+     +----------------------------+ |
+|             |                               |              |
+|             | /scan                          | /odom_gt     |
+|             v                               v              |
+|  +--------------------+     +----------------------------+ |
+|  | slam_toolbox       | <---| odom_to_tf.py /           | |
+|  | async mapping      |     | slam_initial_pose_setter  | |
+|  +--------------------+     +----------------------------+ |
+|             |                                              |
+|             +--> /map, /tf, pose                          |
+|                                                             |
+|  +--------------------+  +-------------------------------+ |
+|  | slam_map_saver.py  |  | slam_odom_from_tf.py         | |
+|  | export debug map   |  | odom SLAM derivée            | |
+|  +--------------------+  +-------------------------------+ |
+|                                                             |
++-------------------------------------------------------------+
+
+But de cette stack:
+- tester l’autonomie et le mapping sans matériel réel,
+- valider les paramètres SLAM dans un environnement reproductible.
+
+
+============================================================
+2) STACK ROBOT RÉEL (start_robot_mapping_auto.sh)
+============================================================
+
+OS / Runtime:
+- Hôte robot/PC: Linux (Ubuntu) + ROS2 Humble
+- MCU embarqué: ESP32 (FreeRTOS + micro-ROS firmware)
+- Liaison: Wi-Fi UDP micro-ROS entre ESP32 et ROS2
+
+Bloc architecture (robot réel):
+
++--------------------------- ESP32 / FreeRTOS ---------------------------+
+|  Firmware micro-ROS                                                     |
+|  - acquisition LiDAR                                                    |
+|  - publication /scan_raw (BEST_EFFORT)                                 |
++-----------------------------------+------------------------------------+
+                                    | Wi-Fi / micro-ROS
+                                    v
++----------------------- Linux Ubuntu / ROS2 ----------------------------+
+|                                                                         |
+|  +-------------------------+        +-------------------------------+   |
+|  | scan_restamper_simple.py| -----> | /scan (RELIABLE, pour SLAM)  |   |
+|  | /scan_raw -> /scan      | -----> | /scan_rf2o (optionnel RF2O)  |   |
+|  +-------------------------+        +-------------------------------+   |
+|               |                                                         |
+|               | /scan_raw                                               |
+|               v                                                         |
+|  +-------------------------+                                            |
+|  | wall_centering_node.py  | --- /cmd_vel ---> +--------------------+  |
+|  | pilotage couloir        |                   | motor_odom_simple.py|  |
+|  +-------------------------+                   | /cmd_vel -> /odom   |  |
+|                                                | + TF odom->base_link |  |
+|                                                +----------+-----------+  |
+|                                                           | /odom        |
+|                                                           v              |
+|                                               +-----------------------+   |
+|                                               | slam_toolbox          |   |
+|                                               | mapping (async)       |   |
+|                                               +-----------------------+   |
+|                                                           |              |
+|                                                           +--> /map, /tf |
+|                                                                         |
++-------------------------------------------------------------------------+
+
+But de cette stack:
+- mapper en conditions réelles,
+- avancer en autonomie (suivi/centrage de couloir),
+- fournir une odométrie exploitable pour le SLAM.
+
+
+============================================================
+3) FICHE PAR CODE (RÔLE + I/O + OS)
+============================================================
+
+[Orchestration]
+- start_auto_slam_only.sh
+  OS: Linux Ubuntu
+  Lance: pipeline simulation complet (simu + SLAM + outils)
+
+- start_robot_mapping_auto.sh
+  OS: Linux Ubuntu
+  Lance: TF statique + restamper + motor odom + wall centering + SLAM
+
+[Perception]
+- scan_restamper_simple.py
+  OS: Linux Ubuntu (ROS2 Python)
+  In: /scan_raw
+  Out: /scan, /scan_rf2o
+
+- simu_lidar_auto.py
+  OS: Linux Ubuntu (ROS2 Python)
+  In: simulation interne
+  Out: flux LiDAR simulé
+
+- simu_bridge.py
+  OS: Linux Ubuntu (ROS2 Python)
+  In: flux simu
+  Out: /scan, /odom_ground_truth
+
+[Contrôle]
+- wall_centering_node.py
+  OS: Linux Ubuntu (ROS2 Python, pygame)
+  In: /scan_raw
+  Out: /cmd_vel
+
+[Odométrie / TF]
+- motor_odom_simple.py
+  OS: Linux Ubuntu (ROS2 Python)
+  In: /cmd_vel
+  Out: /odom_motor (ou /odom avec remap), TF odom->base_link
+
+- odom_to_tf.py
+  OS: Linux Ubuntu (ROS2 Python)
+  In: odométrie simulation
+  Out: TF bootstrap
+
+- slam_odom_from_tf.py
+  OS: Linux Ubuntu (ROS2 Python)
+  In: TF SLAM
+  Out: /odom_slam
+
+[SLAM]
+- slam_toolbox (async_slam_toolbox_node)
+  OS: Linux Ubuntu (ROS2 C++)
+  In: /scan + /odom + TF
+  Out: /map + /tf + pose SLAM
+
+[Support]
+- wait_for_topic.py
+  OS: Linux Ubuntu (ROS2 Python)
+  In: nom de topic
+  Out: code retour OK/KO pour séquencer le démarrage
+
+- slam_map_saver.py
+  OS: Linux Ubuntu (ROS2 Python)
+  In: données de carte SLAM
+  Out: image/fichier carte debug
+
+[Firmware embarqué]
+- src/main.cpp (ESP32)
+  OS: FreeRTOS (ESP32)
+  In: capteurs embarqués
+  Out: topics micro-ROS vers agent ROS2 (ex: /scan_raw)
+
+
+============================================================
+4) CONTRATS D’INTERFACE CRITIQUES
+============================================================
+
+- Frames TF standard: map, odom, base_link, laser_link
+- SLAM consomme /scan (pas /scan_raw)
+- En robot réel, SLAM doit recevoir /odom (remap depuis /odom_motor)
+- Un seul producteur cohérent de /odom actif à la fois
+- QoS LiDAR: /scan_raw BEST_EFFORT -> /scan RELIABLE via restamper
+
+
+============================================================
+5) ÉTAT DES SCRIPTS DE DÉMARRAGE (RACINE)
+============================================================
+
+- start_auto_slam_only.sh
+- start_robot_mapping_auto.sh
+
+Les autres scripts start_*.sh sont archivés dans:
+- _deprecated/unused_sh/
+
+
+============================================================
+6) RÉSUMÉ EXÉCUTIF
+============================================================
+
+Le système est organisé en deux architectures opérationnelles:
+1) Simulation Linux-only pour valider navigation et SLAM sans hardware,
+2) Robot réel hybride Linux + ESP32/FreeRTOS pour cartographier en mouvement autonome.
