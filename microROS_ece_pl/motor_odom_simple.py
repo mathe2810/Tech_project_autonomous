@@ -31,6 +31,7 @@ class MotorOdomNode(Node):
         self.declare_parameter('velocity_time_constant', 0.12)
         self.declare_parameter('cmd_timeout', 0.25)
         self.declare_parameter('max_dt', 0.10)
+        self.declare_parameter('initial_yaw', 0.0)
 
         self.declare_parameter('base_cov_pose_x', 1.0)
         self.declare_parameter('base_cov_pose_y', 1.0)
@@ -56,6 +57,7 @@ class MotorOdomNode(Node):
         self.velocity_time_constant = self.get_parameter('velocity_time_constant').value
         self.cmd_timeout = self.get_parameter('cmd_timeout').value
         self.max_dt = self.get_parameter('max_dt').value
+        self.initial_yaw = self.get_parameter('initial_yaw').value
 
         self.base_cov_pose_x = self.get_parameter('base_cov_pose_x').value
         self.base_cov_pose_y = self.get_parameter('base_cov_pose_y').value
@@ -87,7 +89,7 @@ class MotorOdomNode(Node):
         # Odometry state
         self.x = 0.0
         self.y = 0.0
-        self.theta = 0.0
+        self.theta = self._wrap_angle(float(self.initial_yaw))
         self.last_vel = Twist()
         self.v_est = 0.0
         self.w_est = 0.0

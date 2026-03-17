@@ -15,6 +15,9 @@ from sensor_msgs.msg import LaserScan
 class ScanRestamper(Node):
     def __init__(self):
         super().__init__('scan_restamper')
+
+        self.declare_parameter('scan_yaw_offset', 0.0)
+        self.scan_yaw_offset = float(self.get_parameter('scan_yaw_offset').value)
         
         # Subscribe to ESP32 /scan_raw in BEST_EFFORT
         scan_raw_qos = QoSProfile(
@@ -58,7 +61,10 @@ class ScanRestamper(Node):
             qos_profile=scan_raw_qos
         )
         
-        self.get_logger().info('Scan Restamper started - bridging /scan_raw → /scan (RELIABLE), /scan_rf2o (BEST_EFFORT)')
+        self.get_logger().info(
+            'Scan Restamper started - bridging /scan_raw → /scan (RELIABLE), '
+            f'/scan_rf2o (BEST_EFFORT), scan_yaw_offset={self.scan_yaw_offset:.3f} rad'
+        )
         self.scan_count = 0
 
     def scan_callback(self, msg):
@@ -75,6 +81,10 @@ class ScanRestamper(Node):
         # Filtrer les ranges supérieurs à 2.0m
         filtered_ranges = [r if r <= 2.0 else float('inf') for r in msg.ranges]
         msg.ranges = filtered_ranges
+
+        if self.scan_yaw_offset != 0.0:
+            msg.angle_min += self.scan_yaw_offset
+            msg.angle_max += self.scan_yaw_offset
 
         msg.header.stamp = self.get_clock().now().to_msg()
         try:

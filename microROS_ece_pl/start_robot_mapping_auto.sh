@@ -30,6 +30,7 @@ ALREADY_CLEANED=0
 TF_LASER_PID=""
 RESTAMPER_PID=""
 MOTOR_ODOM_PID=""
+PYGAME_VIZ_PID=""
 WALL_CENTER_PID=""
 SLAM_PID=""
 
@@ -39,7 +40,7 @@ cleanup() {
   fi
   ALREADY_CLEANED=1
 
-  local pids=("$TF_LASER_PID" "$RESTAMPER_PID" "$MOTOR_ODOM_PID" "$WALL_CENTER_PID" "$SLAM_PID")
+  local pids=("$TF_LASER_PID" "$RESTAMPER_PID" "$MOTOR_ODOM_PID" "$PYGAME_VIZ_PID" "$WALL_CENTER_PID" "$SLAM_PID")
   for pid in "${pids[@]}"; do
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
@@ -55,10 +56,10 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 echo "=============================================="
-echo "ROBOT MAPPING AUTO (Wall Centering + Motor Odom)"
+echo "ROBOT MAPPING AUTO (Corridor mode + Motor Odom)"
 echo "=============================================="
 
-pkill -f "slam_toolbox|scan_restamper|static_transform_publisher|motor_odom_simple|wall_centering_node" 2>/dev/null || true
+pkill -f "slam_toolbox|scan_restamper|static_transform_publisher|motor_odom_simple|wall_centering_node|odom_pygame_visualizer|rf2o" 2>/dev/null || true
 sleep 1
 
 echo "[1/7] Static TF base_link -> laser_link"
@@ -66,8 +67,8 @@ ros2 run tf2_ros static_transform_publisher 0.10 0.0 0.15 0 0 0 base_link laser_
 TF_LASER_PID=$!
 sleep 1
 
-echo "[2/7] Scan restamper (/scan_raw -> /scan)"
-python3 scan_restamper_simple.py &
+echo "[2/7] Scan restamper (/scan_raw -> /scan, yaw offset)"
+python3 scan_restamper_simple.py --ros-args -p scan_yaw_offset:=-1.57079632679 &
 RESTAMPER_PID=$!
 sleep 1
 
@@ -77,29 +78,36 @@ python3 wait_for_topic.py /scan_raw 15 || { echo "❌ /scan_raw timeout"; exit 1
 echo "[4/7] Waiting for /scan"
 python3 wait_for_topic.py /scan 15 || { echo "❌ /scan timeout"; exit 1; }
 
-echo "[5/7] Motor odometry (/odom_motor remapped to /odom)"
-python3 motor_odom_simple.py --ros-args -r /odom_motor:=/odom &
+echo "[5/7] Motor odometry (primary /odom for corridor)"
+python3 motor_odom_simple.py --ros-args -p initial_yaw:=0.0 -p linear_scale:=-1.0 -p angular_scale:=-1.0 &
 MOTOR_ODOM_PID=$!
 sleep 1
 
-echo "[6/7] Wall centering autonomous drive"
-python3 wall_centering_node.py &
-WALL_CENTER_PID=$!
+#echo "[6/7] Wall centering autonomous drive"
+#python3 wall_centering_node.py &
+#WALL_CENTER_PID=$!
 sleep 1
 
-echo "[7/7] SLAM Toolbox mapping"
+echo "[6/7] Python visualizer (pygame: /scan + /odom)"
+python3 odom_pygame_visualizer.py --ros-args -p odom_topic:=/odom_motor -p heading_offset:=0.0 -p scan_yaw_offset:=0.0 &
+PYGAME_VIZ_PID=$!
+sleep 1
+
+echo "[7/7] SLAM Toolbox mapping (odom prioritized, scan-matching light)"
 ros2 run slam_toolbox async_slam_toolbox_node \
   --ros-args \
-  --params-file config/slam_toolbox_rf2o_v2.yaml \
+  --params-file config/slam_toolbox_motor_corridor.yaml \
   -p use_sim_time:=false \
   -p scan_topic:=/scan \
+  -p odom_topic:=/odom_motor \
   -p odom_frame:=odom \
   -p base_frame:=base_link \
   -p map_frame:=map &
 SLAM_PID=$!
 
 echo ""
-echo "✅ Stack started: mapping + autonomous wall following"
+echo "✅ Stack started: corridor mapping + pygame visualizer"
+echo "🖥️  Visualizer: pygame window (scan + odom path)"
 echo "🛑 Stop with Ctrl+C"
 
 wait
