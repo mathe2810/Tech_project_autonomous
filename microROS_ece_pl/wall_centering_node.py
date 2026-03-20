@@ -13,14 +13,14 @@ class CorridorRailNode(Node):
         super().__init__('corridor_rail_node')
         
         self.pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.sub = self.create_subscription(LaserScan, '/scan_raw', self.callback, 10)
+        self.sub = self.create_subscription(LaserScan, '/scan', self.callback, 10)
         
         # --- RÉGLAGES "RAIL VIRTUEL" — MODE CARRELAGE ---
-        self.cruise_speed = 0.45      # +40% : compense le glissement statique
-        self.alpha_rot = 0.88         # Moins d'amortissement : réaction plus rapide
+        self.cruise_speed = 0.4       # Vitesse nominale stable
+        self.alpha_rot = 0.80         # Amortissement des oscillations
         self.deadzone = 0.10          # Inchangé
-        self.gain_rot = 0.72          # Correction angulaire plus franche
-        self.min_rotation = 0.60      # Seuil moteur plus haut : dépasse le seuil de glissement
+        self.gain_rot = 1.0           # Correction angulaire : force légèrement plus de rotation
+        self.min_rotation = 0.38      # Seuil moteur : ne crée PAS de virage énorme
         
         self.prev_w = 0.0
         self.last_scan = None
@@ -110,7 +110,7 @@ class CorridorRailNode(Node):
         smoothed_w = (self.alpha_rot * self.prev_w) + ((1 - self.alpha_rot) * target_w)
         
         # On limite l'accélération de la rotation
-        max_delta = 0.08 
+        max_delta = 0.1
         diff = smoothed_w - self.prev_w
         if abs(diff) > max_delta:
             smoothed_w = self.prev_w + np.sign(diff) * max_delta
@@ -121,7 +121,7 @@ class CorridorRailNode(Node):
         cmd = Twist()
         # On ralentit un peu si le mur d'en face se rapproche (virage serré)
         cmd.linear.x = float(self.cruise_speed if dist_f > 0.8 else self.cruise_speed * 0.7)
-        cmd.angular.z = float(np.clip(smoothed_w, -1.1, 1.1))
+        cmd.angular.z = float(np.clip(smoothed_w, -1.0, 1.0))
         
         self.pub.publish(cmd)
         self.draw_ui(ranges, idx_front, dist_l, dist_r, cmd)

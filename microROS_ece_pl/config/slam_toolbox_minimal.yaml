@@ -1,62 +1,74 @@
 slam_toolbox:
   ros__parameters:
-    mode: mapping
-    scan_topic: /scan
-    base_frame: base_link
+
+    # Plugin params
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: None
+
+    # ROS Parameters
     odom_frame: odom
     map_frame: map
+    base_frame: base_link
+    scan_topic: /scan
+    use_map_saver: true
+    mode: mapping #localization
 
-    # -------------------------------------------------------
-    # Scan matching pur - sans odom
-    # -------------------------------------------------------
+    # if you'd like to immediately start continuing a map at a given pose
+    # or at the dock, but they are mutually exclusive, if pose is given
+    # will use pose
+    #map_file_name: test_map
+    # map_start_pose: [0.0, 0.0, 0.0]
+    #map_start_at_dock: true
+
+    debug_logging: false
+    throttle_scans: 1
+    transform_publish_period: 0.02 #if 0 never publishes odometry
+    map_update_interval: 3.0
+    resolution: 0.05
+    max_laser_range: 15.0 # for rastering images
+    minimum_time_interval: 0.1
+    transform_timeout: 0.2
+    tf_buffer_duration: 30.
+    stack_size_to_use: 40000000 #// program needs a larger stack size to serialize large maps
+    enable_interactive_mode: true
+
+    # General Parameters
     use_scan_matching: true
     use_scan_barycenter: true
-
     minimum_travel_distance: 0.0
     minimum_travel_heading: 0.0
-    minimum_time_interval: 0.0    # Traite CHAQUE scan sans délai minimum
+    scan_buffer_size: 20
+    scan_buffer_maximum_scan_distance: 15.0
+    link_match_minimum_response_fine: 0.1
+    link_scan_maximum_distance: 3.0
+    loop_search_maximum_distance: 3.0
+    do_loop_closing: true 
+    loop_match_minimum_chain_size: 10
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.85
+    loop_match_minimum_response_fine: 0.90
 
-    throttle_scans: 1
+    # Correlation Parameters - Correlation Parameters
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1 
 
-    # -------------------------------------------------------
-    # Solver
-    # -------------------------------------------------------
-    solver_plugin: solver_plugins::CeresSolver
-    max_iterations: 150           # Augmenté 100→150: plus d'itérations pour convergence robuste
-    num_threads: 4
+    # Correlation Parameters - Loop Closure Parameters
+    loop_search_space_dimension: 8.0
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.03
 
-    # -------------------------------------------------------
-    # Fenêtre de recherche - agressive pour rotation rapide
-    # -------------------------------------------------------
-    # Coarse : couvre jusqu'à 90° de rotation entre deux scans
-    coarse_search_angle_offset: 1.570   # 90 deg
-    coarse_angle_resolution: 0.0087     # 0.5 deg - résolution fine pour ne pas rater
+    # Scan Matcher Parameters
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
 
-    # Fine : affinage précis après coarse
-    fine_search_angle_offset: 0.0698    # 4 deg
-
-    # -------------------------------------------------------
-    # Pénalités
-    # -------------------------------------------------------
-    distance_variance_penalty: 0.5        # AUGMENTÉ 0.3→0.5: très strict linéaire
-    angle_variance_penalty: 2.0           # AUGMENTÉ 1.5→2.0: très strict angle
-    response_distance_variance_penalty: 0.3
-
-    # Bas = accepte des matchs partiels pendant une rotation
-    minimum_response: 0.60         # TRÈS HAUT 0.40→0.60: rejette quasi tous les matchs faibles
-
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
     use_response_expansion: true
-
-    # -------------------------------------------------------
-    # Carte
-    # -------------------------------------------------------
-    resolution: 0.05
-    map_update_interval: 1.0       # Réduit 0.1→1.0 (update chaque seconde quand pauses)
-
-    # -------------------------------------------------------
-    # Loop closing - ULTRA CONSERVATEUR (évite fausses détections)
-    # -------------------------------------------------------
-    do_loop_closing: true                            # Activé mais très strict
-    loop_search_maximum_distance: 0.5                # RÉDUIT: cherche boucles < 50cm (très proche!)
-    loop_match_minimum_response_coarse: 0.80         # TRÈS HAUT: 80% confiance minimum
-    loop_match_minimum_response_fine: 0.90           # ULTRA HAUT: 90% confiance fine matching
