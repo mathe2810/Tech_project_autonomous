@@ -25,6 +25,13 @@ class CorridorRailNode(Node):
         self.prev_w = 0.0
         self.last_scan = None
         
+        # --- PAUSE PÉRIODIQUE POUR SLAM ---
+        self.last_pause_time = time.time()
+        self.pause_interval_s = 5.0   # Pause toutes les 5 secondes
+        self.pause_duration_s = 1.5   # Arrêt de 1.5 secondes
+        self.is_paused = False
+        self.pause_start_time = None
+        
         pygame.init()
         self.screen = pygame.display.set_mode((600, 750))
         self.font = pygame.font.SysFont("monospace", 18, bold=True)
@@ -35,6 +42,36 @@ class CorridorRailNode(Node):
 
     def run_logic(self):
         if not self.last_scan: return
+
+        # --- GESTION PAUSE POUR SLAM ---
+        now = time.time()
+        
+        # Vérifier si une pause est en cours
+        if self.is_paused:
+            if now - self.pause_start_time >= self.pause_duration_s:
+                # Fin de pause, reprendre
+                self.is_paused = False
+                self.last_pause_time = now
+                self.get_logger().info("✅ Pause SLAM terminée, reprise mouvement")
+            else:
+                # Toujours en pause, publier STOP
+                stop_cmd = Twist()
+                stop_cmd.linear.x = 0.0
+                stop_cmd.angular.z = 0.0
+                self.pub.publish(stop_cmd)
+                return
+        
+        # Vérifier si une pause est nécessaire
+        if now - self.last_pause_time >= self.pause_interval_s:
+            self.is_paused = True
+            self.pause_start_time = now
+            self.get_logger().info(f"⏸️  PAUSE SLAM ({self.pause_duration_s}s) - Map update")
+            # Publier STOP immédiatement
+            stop_cmd = Twist()
+            stop_cmd.linear.x = 0.0
+            stop_cmd.angular.z = 0.0
+            self.pub.publish(stop_cmd)
+            return
 
         ranges = np.array(self.last_scan.ranges)
         # On limite la portée à 2.0m : inutile de voir plus loin dans un couloir
