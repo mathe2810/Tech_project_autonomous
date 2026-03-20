@@ -1,0 +1,62 @@
+slam_toolbox:
+  ros__parameters:
+    mode: mapping
+    scan_topic: /scan
+    base_frame: base_link
+    odom_frame: odom
+    map_frame: map
+
+    # -------------------------------------------------------
+    # Scan matching pur - sans odom
+    # -------------------------------------------------------
+    use_scan_matching: true
+    use_scan_barycenter: true
+
+    minimum_travel_distance: 0.0
+    minimum_travel_heading: 0.0
+    minimum_time_interval: 0.0    # Traite CHAQUE scan sans délai minimum
+
+    throttle_scans: 1
+
+    # -------------------------------------------------------
+    # Solver
+    # -------------------------------------------------------
+    solver_plugin: solver_plugins::CeresSolver
+    max_iterations: 200           # Plus d'itérations = meilleure convergence rotation
+    num_threads: 4
+
+    # -------------------------------------------------------
+    # Fenêtre de recherche - agressive pour rotation rapide
+    # -------------------------------------------------------
+    # Coarse : couvre jusqu'à 90° de rotation entre deux scans
+    coarse_search_angle_offset: 1.570   # 90 deg
+    coarse_angle_resolution: 0.0087     # 0.5 deg - résolution fine pour ne pas rater
+
+    # Fine : affinage précis après coarse
+    fine_search_angle_offset: 0.0698    # 4 deg
+
+    # -------------------------------------------------------
+    # Pénalités
+    # -------------------------------------------------------
+    distance_variance_penalty: 0.3
+    angle_variance_penalty: 1.5        # Très strict en angle = priorité correction rotation
+    response_distance_variance_penalty: 0.2
+
+    # Bas = accepte des matchs partiels pendant une rotation
+    minimum_response: 0.20
+
+    use_response_expansion: true
+
+    # -------------------------------------------------------
+    # Carte
+    # -------------------------------------------------------
+    resolution: 0.05
+    map_update_interval: 0.1
+
+    # -------------------------------------------------------
+    # Loop closing - corrige le drift accumulé sur boucle
+    # -------------------------------------------------------
+    do_loop_closing: true
+    loop_search_maximum_distance: 3.0
+    loop_match_minimum_response_coarse: 0.25
+    loop_match_minimum_response_fine: 0.35

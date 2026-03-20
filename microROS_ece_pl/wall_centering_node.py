@@ -15,12 +15,12 @@ class CorridorRailNode(Node):
         self.pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.sub = self.create_subscription(LaserScan, '/scan_raw', self.callback, 10)
         
-        # --- RÉGLAGES "RAIL VIRTUEL" ---
-        self.cruise_speed = 0.32      # Vitesse constante pour la course
-        self.alpha_rot = 0.95         # Amortissement très fort
-        self.deadzone = 0.10          # Zone morte fine (on veut être au milieu)
-        self.gain_rot = 0.4           # Gain très doux pour "glisser" dans les virages
-        self.min_rotation = 0.38      # Seuil minimal pour faire bouger les moteurs
+        # --- RÉGLAGES "RAIL VIRTUEL" — MODE CARRELAGE ---
+        self.cruise_speed = 0.45      # +40% : compense le glissement statique
+        self.alpha_rot = 0.88         # Moins d'amortissement : réaction plus rapide
+        self.deadzone = 0.10          # Inchangé
+        self.gain_rot = 0.72          # Correction angulaire plus franche
+        self.min_rotation = 0.60      # Seuil moteur plus haut : dépasse le seuil de glissement
         
         self.prev_w = 0.0
         self.last_scan = None
@@ -42,6 +42,7 @@ class CorridorRailNode(Node):
         
         angle_inc = self.last_scan.angle_increment
         idx_front = int((math.pi/2 - self.last_scan.angle_min) / angle_inc)
+        idx_front = 0
         
         # On regarde large sur les côtés (60°) pour bien capter les murs du couloir
         side_angle = int(math.radians(60) / angle_inc)
@@ -72,7 +73,7 @@ class CorridorRailNode(Node):
         smoothed_w = (self.alpha_rot * self.prev_w) + ((1 - self.alpha_rot) * target_w)
         
         # On limite l'accélération de la rotation
-        max_delta = 0.04 
+        max_delta = 0.08 
         diff = smoothed_w - self.prev_w
         if abs(diff) > max_delta:
             smoothed_w = self.prev_w + np.sign(diff) * max_delta
@@ -83,7 +84,7 @@ class CorridorRailNode(Node):
         cmd = Twist()
         # On ralentit un peu si le mur d'en face se rapproche (virage serré)
         cmd.linear.x = float(self.cruise_speed if dist_f > 0.8 else self.cruise_speed * 0.7)
-        cmd.angular.z = float(np.clip(smoothed_w, -0.7, 0.7))
+        cmd.angular.z = float(np.clip(smoothed_w, -1.1, 1.1))
         
         self.pub.publish(cmd)
         self.draw_ui(ranges, idx_front, dist_l, dist_r, cmd)

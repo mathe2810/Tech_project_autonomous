@@ -11,6 +11,7 @@ from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy, QoSHistoryPolicy
 from sensor_msgs.msg import LaserScan
+import numpy as np
 
 class ScanRestamper(Node):
     def __init__(self):
@@ -18,6 +19,10 @@ class ScanRestamper(Node):
 
         self.declare_parameter('scan_yaw_offset', 0.0)
         self.scan_yaw_offset = float(self.get_parameter('scan_yaw_offset').value)
+        
+        self.scan_count = 0
+        self.last_published_count = 0
+        self.publish_interval = 4  # Publier 1 scan sur 4 (throttle maximal)
         
         # Subscribe to ESP32 /scan_raw in BEST_EFFORT
         scan_raw_qos = QoSProfile(
@@ -27,12 +32,12 @@ class ScanRestamper(Node):
             depth=1
         )
 
-        # Publish /scan in RELIABLE so SLAM Toolbox + RViz are compatible
+        # Publish /scan in RELIABLE (SLAM needs RELIABLE)
         scan_reliable_qos = QoSProfile(
             reliability=QoSReliabilityPolicy.RELIABLE,
             durability=QoSDurabilityPolicy.VOLATILE,
             history=QoSHistoryPolicy.KEEP_LAST,
-            depth=10
+            depth=3
         )
 
         # Publish /scan_rf2o in BEST_EFFORT for RF2O compatibility
@@ -68,37 +73,28 @@ class ScanRestamper(Node):
         self.scan_count = 0
 
     def scan_callback(self, msg):
-        """Retimestamp scan to ROS clock"""
+        """Retimestamp scan to ROS clock - optimized"""
         if not rclpy.ok():
             return
 
         self.scan_count += 1
         
-        # Log frame_id on first scan
-        if self.scan_count == 1:
-            self.get_logger().info(f'First scan - frame_id: {msg.header.frame_id}')
+        # Throttle: publier juste 1 scan sur 2
+        if self.scan_count % self.publish_interval != 0:
+            return
         
-        # Filtrer les ranges supérieurs à 2.0m
-        filtered_ranges = [r if r <= 2.0 else float('inf') for r in msg.ranges]
-        msg.ranges = filtered_ranges
+        # Fast numpy filtering
+        ranges_array = np.array(msg.ranges, dtype=np.float32)
+        ranges_array[ranges_array > 4.0] = np.inf
+        msg.ranges = ranges_array.tolist()
 
         if self.scan_yaw_offset != 0.0:
             msg.angle_min += self.scan_yaw_offset
             msg.angle_max += self.scan_yaw_offset
 
         msg.header.stamp = self.get_clock().now().to_msg()
-        try:
-            self.scan_pub.publish(msg)
-            self.scan_rf2o_pub.publish(msg)
-        except Exception:
-            if not rclpy.ok():
-                return
-            raise
-        
-        if self.scan_count % 50 == 0:
-            self.get_logger().info(
-                f'Published {self.scan_count} scans to /scan + /scan_rf2o (frame_id={msg.header.frame_id})'
-            )
+        self.scan_pub.publish(msg)
+        self.scan_rf2o_pub.publish(msg)
 
 def main(args=None):
     rclpy.init(args=args)

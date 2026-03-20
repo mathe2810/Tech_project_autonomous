@@ -179,8 +179,8 @@ def draw(node: OdomPygameVisualizer) -> None:
     panel_x = width - panel_width - panel_margin
     panel_y = panel_margin
 
-    last_map_stamp_ns = -1
-    map_surface = None
+    odom_history = []
+    max_history = 300
 
     running = True
     while running and rclpy.ok():
@@ -196,6 +196,13 @@ def draw(node: OdomPygameVisualizer) -> None:
         robot_px = int(center_x + data['x'] * pixels_per_meter)
         robot_py = int(center_y - data['y'] * pixels_per_meter)
         pygame.draw.circle(screen, (255, 220, 80), (robot_px, robot_py), 6)
+
+        odom_history.append((robot_px, robot_py))
+        if len(odom_history) > max_history:
+            odom_history.pop(0)
+        for i, (hp, hy) in enumerate(odom_history):
+            alpha = min(255, int(255 * i / max_history))
+            pygame.draw.circle(screen, (100, 150, 255), (hp, hy), 2)
 
         heading_len = 28
         yaw_display = data['yaw'] + node.heading_offset
@@ -222,66 +229,62 @@ def draw(node: OdomPygameVisualizer) -> None:
         map_w = data['map_width']
         map_h = data['map_height']
         if map_data and map_w > 0 and map_h > 0:
-            map_stamp_ns = data['map_stamp_ns']
-            if map_stamp_ns != last_map_stamp_ns:
-                raw_surface = pygame.Surface((map_w, map_h))
-                for j in range(map_h):
-                    src_row = map_h - 1 - j
-                    row_offset = src_row * map_w
-                    for i in range(map_w):
-                        occ = map_data[row_offset + i]
-                        if occ < 0:
-                            color = (125, 125, 125)
-                        elif occ >= 65:
-                            color = (30, 30, 30)
-                        else:
-                            color = (235, 235, 235)
-                        raw_surface.set_at((i, j), color)
-
-                scale = min(panel_width / map_w, panel_height / map_h)
-                scaled_w = max(1, int(map_w * scale))
-                scaled_h = max(1, int(map_h * scale))
-                map_surface = pygame.transform.scale(raw_surface, (scaled_w, scaled_h))
-                last_map_stamp_ns = map_stamp_ns
-
-            if map_surface is not None:
-                mx = panel_x + (panel_width - map_surface.get_width()) // 2
-                my = panel_y + (panel_height - map_surface.get_height()) // 2
-                screen.blit(map_surface, (mx, my))
-
-                map_resolution = data['map_resolution']
-                if map_resolution > 0.0:
-                    map_origin_x = data['map_origin_x']
-                    map_origin_y = data['map_origin_y']
-                    if data['robot_map_x'] is None or data['robot_map_y'] is None:
-                        robot_map_x = None
-                        robot_map_y = None
+            raw_surface = pygame.Surface((map_w, map_h))
+            for j in range(map_h):
+                src_row = map_h - 1 - j
+                row_offset = src_row * map_w
+                for i in range(map_w):
+                    occ = map_data[row_offset + i]
+                    if occ < 0:
+                        color = (125, 125, 125)
+                    elif occ >= 65:
+                        color = (30, 30, 30)
                     else:
-                        robot_map_x = (data['robot_map_x'] - map_origin_x) / map_resolution
-                        robot_map_y = (data['robot_map_y'] - map_origin_y) / map_resolution
+                        color = (235, 235, 235)
+                    raw_surface.set_at((i, j), color)
 
-                    if robot_map_x is not None and 0.0 <= robot_map_x < map_w and 0.0 <= robot_map_y < map_h:
-                        image_x = robot_map_x
-                        image_y = (map_h - 1) - robot_map_y
+            scale = min(panel_width / map_w, panel_height / map_h)
+            scaled_w = max(1, int(map_w * scale))
+            scaled_h = max(1, int(map_h * scale))
+            map_surface = pygame.transform.scale(raw_surface, (scaled_w, scaled_h))
 
-                        scale_x = map_surface.get_width() / float(map_w)
-                        scale_y = map_surface.get_height() / float(map_h)
-                        robot_px_map = int(mx + image_x * scale_x)
-                        robot_py_map = int(my + image_y * scale_y)
+            mx = panel_x + (panel_width - map_surface.get_width()) // 2
+            my = panel_y + (panel_height - map_surface.get_height()) // 2
+            screen.blit(map_surface, (mx, my))
 
-                        pygame.draw.circle(screen, (255, 220, 80), (robot_px_map, robot_py_map), 4)
+            map_resolution = data['map_resolution']
+            if map_resolution > 0.0:
+                map_origin_x = data['map_origin_x']
+                map_origin_y = data['map_origin_y']
+                if data['robot_map_x'] is None or data['robot_map_y'] is None:
+                    robot_map_x = None
+                    robot_map_y = None
+                else:
+                    robot_map_x = (data['robot_map_x'] - map_origin_x) / map_resolution
+                    robot_map_y = (data['robot_map_y'] - map_origin_y) / map_resolution
 
-                        heading_len_map = 12
-                        yaw_display = data['robot_map_yaw'] if data['robot_map_yaw'] is not None else data['yaw']
-                        heading_x = int(robot_px_map + heading_len_map * math.cos(yaw_display))
-                        heading_y = int(robot_py_map - heading_len_map * math.sin(yaw_display))
-                        pygame.draw.line(
-                            screen,
-                            (255, 120, 80),
-                            (robot_px_map, robot_py_map),
-                            (heading_x, heading_y),
-                            2,
-                        )
+                if robot_map_x is not None and 0.0 <= robot_map_x < map_w and 0.0 <= robot_map_y < map_h:
+                    image_x = robot_map_x
+                    image_y = (map_h - 1) - robot_map_y
+
+                    scale_x = map_surface.get_width() / float(map_w)
+                    scale_y = map_surface.get_height() / float(map_h)
+                    robot_px_map = int(mx + image_x * scale_x)
+                    robot_py_map = int(my + image_y * scale_y)
+
+                    pygame.draw.circle(screen, (255, 220, 80), (robot_px_map, robot_py_map), 4)
+
+                    heading_len_map = 12
+                    yaw_display = data['robot_map_yaw'] if data['robot_map_yaw'] is not None else data['yaw']
+                    heading_x = int(robot_px_map + heading_len_map * math.cos(yaw_display))
+                    heading_y = int(robot_py_map - heading_len_map * math.sin(yaw_display))
+                    pygame.draw.line(
+                        screen,
+                        (255, 120, 80),
+                        (robot_px_map, robot_py_map),
+                        (heading_x, heading_y),
+                        2,
+                    )
         else:
             no_map = font.render('Waiting /map ...', True, (180, 180, 180))
             screen.blit(no_map, (panel_x + 90, panel_y + panel_height // 2 - 10))
