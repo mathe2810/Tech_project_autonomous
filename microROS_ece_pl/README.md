@@ -1,87 +1,256 @@
-# MicroROS ECE Navigation Stack
+# MicroROS ECE - Navigation Autonome avec SLAM
 
-Localisation et navigation autonome avec Kalman Filter fusion + SLAM + Nav2.
+Stack de localisation et mapping autonome basé sur **ROS2 Humble** + **SLAM Toolbox**.
 
-## Architecture
+Deux modes de fonctionnement :
+- **Simulation 2D** : Environnement contrôlé pour tester l'autonomie
+- **Robot Réel** : Mapping pur via scan matching sur hardware ESP32
 
-```
-ESP32 (Capteurs)
-├── /cmd_vel (commandes moteur PWM)
-├── /imu/data (IMU brut)
-└── /scan (LIDAR)
-    ↓
-[Nœuds de localisation]
-├── motor_odom_node.py       → /odom (odométrie moteur)
-├── imu_kalman_filter.py     → /imu/data_filtered (lissage IMU)
-├── simple_slam.py           → /map + /slam/pose (mapping)
-└── kalman_filter_fusion.py  → /odom_filtered + /tf (fusion Kalman)
-    ↓
-Nav2 Stack → Navigation autonome
-```
+---
 
-## Nœuds
+## 🎯 Modes de Fonctionnement
 
-### 1. **motor_odom_node.py**
-Odométrie basée sur les commandes PWM + gyroscope IMU.
-- **Entrées**: `/cmd_vel`, `/imu/data_filtered`
-- **Sorties**: `/odom`, `/tf` (odom → base_link)
+### 1️⃣ Simulation (start_auto_slam_only.sh)
 
-### 2. **kalman_filter_fusion.py**
-Extended Kalman Filter fusionne odométrie + SLAM pour éliminer la dérive.
-- **Entrées**: `/odom`, `/slam/pose`, `/imu/data_filtered`
-- **Sorties**: `/odom_filtered`, `/tf` (corrigé)
+Mode simulation complet avec robot en 2D et autonomie programmable.
 
-### 3. **simple_slam.py**
-SLAM simple (ICP scan matching + occupancy grid).
-- **Entrées**: `/scan`
-- **Sorties**: `/map`, `/slam/pose`, `/tf` (map → base_link)
-
-### 4. **imu_kalman_filter.py**
-Filtre EMA pour lissage IMU (court terme).
-- **Entrées**: `/imu/data`
-- **Sorties**: `/imu/data_filtered`
-
-## Démarrage
-
+**Démarrage :**
 ```bash
-# Démarrer tout le stack
-./start_stack.sh
-
-# Ou lancer les nœuds individuellement
-python3 motor_odom_node.py
-python3 imu_kalman_filter.py
-python3 simple_slam.py
-python3 kalman_filter_fusion.py
-ros2 launch nav2_bringup navigation_launch.py
+./start_auto_slam_only.sh
 ```
 
-## Configuration
+**Composants activés :**
+- 🤖 Simulateur LIDAR 2D (`simu_lidar_auto.py`)
+- 🌉 Bridge ROS2 : scan LIDAR + odométrie ground truth (`simu_bridge.py`)
+- 🗺️ SLAM Toolbox en mode `async_slam_toolbox_node`
+- 📍 Setter de pose initiale depuis ground truth
+- 💾 Sauvegarde des cartes en PNG
+- 🧭 Transformer odométrie → TF2
 
-- **Nav2**: [config/nav2_params.yaml](config/nav2_params.yaml)
-- **SLAM Toolbox**: [config/slam_toolbox_params.yaml](config/slam_toolbox_params.yaml)
+**Contrôles :**
+- `A` dans la fenêtre pygame : bascule mode autonome ON/OFF
+- `Flèches ↑↓←→` : commandes manuelles (même en mode autonome)
 
-### micro-ROS agent (VM avec IP dynamique)
+**Configuration utilisée :**
+```
+config/slam_corridor_slam_only.yaml
+```
 
-Le firmware ESP32 essaie d'abord de résoudre `AGENT_HOSTNAME` (par défaut `microros-agent.local`), puis utilise `AGENT_FALLBACK_IP` si la résolution échoue.
+---
 
-Dans `src/main.cpp`:
-- `AGENT_HOSTNAME` : nom DNS/mDNS de la VM
-- `AGENT_FALLBACK_IP` : IP de secours
+### 2️⃣ Robot Réel (start_robot_mapping_auto.sh)
 
-Conseil VM (pont + NAT) : garde le NAT pour Internet et fixe l'IP de l'interface pont (DHCP reservation ou IP statique), pour une connexion agent plus stable.
+Stack minimal pour robot physique avec ESP32 + LIDAR.
+**Mode pur scan matching** : SLAM ne dépend que des données LIDAR, pas de l'odométrie moteur.
 
-## Topics clés
+**Démarrage :**
+```bash
+./start_robot_mapping_auto.sh
+```
 
-| Topic | Type | Direction | Description |
-|-------|------|-----------|-------------|
-| `/odom` | Odometry | OUT | Odométrie moteur (dérive) |
-| `/odom_filtered` | Odometry | OUT | Odométrie fusionnée (stable) |
-| `/map` | OccupancyGrid | OUT | Carte du SLAM |
-| `/scan` | LaserScan | IN | Données LIDAR |
-| `/imu/data` | Imu | IN | Données IMU brutes |
-| `/imu/data_filtered` | Imu | OUT | Données IMU lissées |
-| `/tf` | TF2 | OUT | Transforms (map/odom/base_link) |
+**Pré-requis :**
+- ESP32 programmé (`platformio.ini`) publiant `/scan_raw`
+- LIDAR connecté et fonctionnel
 
-## Fichiers de configuration
-- `src/main.cpp` - Firmware ESP32 (sensors + motor control)
-- `platformio.ini` - Configuration PlatformIO
+**Composants activés :**
+1. TF statique `base_link` → `laser_link` (position LIDAR sur robot)
+2. Restampage LIDAR `/scan_raw` → `/scan`
+3. Attente topics (vérification présence `/scan_raw`)
+4. Odométrie moteur minimale (covariance très élevée = priorité SLAM)
+5. SLAM Toolbox en mode scan matching pur
+6. Option : `wall_centering_node.py` pour autonomie
+
+**Configuration utilisée :**
+```
+config/slam_toolbox_minimal.yaml
+```
+
+---
+
+## 📁 Structure du Projet
+
+```
+├── start_auto_slam_only.sh              ← 🎮 Simulation
+├── start_robot_mapping_auto.sh          ← 🤖 Robot réel
+│
+├── config/
+│   ├── slam_corridor_slam_only.yaml     # SLAM simulation
+│   └── slam_toolbox_minimal.yaml        # SLAM robot réel
+│
+├── Simulateur
+│   ├── simu_lidar_auto.py               # Simulateur 2D + autonomie
+│   └── simu_bridge.py                   # Bridge ROS2 pour simu
+│
+├── SLAM Utils
+│   ├── slam_initial_pose_setter.py      # Init pose SLAM
+│   ├── slam_map_saver.py                # Export cartes PNG
+│   └── slam_odom_from_tf.py             # Odométrie depuis TF
+│
+├── Robot Réel
+│   ├── scan_restamper_simple.py         # Restampage LIDAR
+│   ├── motor_odom_simple.py             # Odométrie moteur
+│   └── wall_centering_node.py           # Contrôle autonome (optionnel)
+│
+├── Utilitaires
+│   ├── odom_to_tf.py                    # Odométrie → TF2
+│   └── wait_for_topic.py                # Attente de topics
+│
+├── Infrastructure
+│   ├── src/main.cpp                     # Firmware ESP32
+│   ├── include/                         # Headers C++
+│   ├── platformio.ini                   # Config PlatformIO
+│   └── .venv/                           # Environnement Python
+│
+└── Docs
+    ├── README.md                        # Ce fichier
+    └── QUICKSTART.md                    # Démarrage rapide
+```
+
+---
+
+## 🛠️ Dépendances
+
+### ROS2 Packages (Humble)
+```bash
+sudo apt install ros-humble-slam-toolbox ros-humble-tf2-ros
+```
+
+### Python 3.10+ (venv inclus)
+```bash
+source .venv/bin/activate
+# Packages: rclpy, PyYAML, numpy, opencv-python, pygame (simu uniquement)
+```
+
+### Firmware ESP32 (optionnel)
+- PlatformIO CLI
+- Board : `esp32dev`
+- Transport : UART ou WiFi
+
+---
+
+## ⚙️ Configuration
+
+### Simulation (`slam_corridor_slam_only.yaml`)
+```yaml
+slam_toolbox:
+  ros__parameters:
+    odom_frame: odom_ground_truth        # Utilise ground truth
+    base_frame: base_link
+    use_scan_matching: true             # Scan matching actif
+    do_loop_closure: false              # Pas de loop closure en simulation
+```
+
+### Robot Réel (`slam_toolbox_minimal.yaml`)
+```yaml
+slam_toolbox:
+  ros__parameters:
+    odom_frame: odom                    # Odométrie moteur (covariance haute)
+    base_frame: base_link
+    use_scan_matching: true             # 100% scan matching
+    do_loop_closure: false              # Optionnel sur petit robot
+```
+
+---
+
+## 🧹 Contrôle des Processus
+
+### Arrêter tous les nœuds
+```bash
+# Simulation
+pkill -9 -f 'simu_|slam|restamper|transform'
+
+# Ou spécifique robot
+pkill -f slam_toolbox
+pkill -f scan_restamper_simple
+pkill -f motor_odom_simple
+```
+
+### Logs en temps réel
+```bash
+# Voir les topics publiés
+ros2 topic list
+
+# Écouter un topic
+ros2 topic echo /map
+ros2 topic echo /scan
+```
+
+---
+
+## 📊 Topics ROS2
+
+| Topic | Type | Source | Utilisation |
+|-------|------|--------|-------------|
+| `/scan` | LaserScan | LIDAR (simu ou réel) | Entrée SLAM |
+| `/odom` | Odometry | Motor/Simu (réel/simu) | Prior SLAM |
+| `/map` | OccupancyGrid | SLAM Toolbox | Carte mappée |
+| `/tf` | TF2 | SLAM/Odom | Transforms |
+| `/pose` | PoseWithCovarianceStamped | SLAM | Position estimée |
+
+---
+
+## 🚀 Exemples de Démarrage
+
+### Simulation seule (sans robot réel)
+```bash
+cd /path/to/project
+./start_auto_slam_only.sh &     # Terminal 1
+
+# Dans un autre terminal - visualiser
+rviz2 &                         # Terminal 2
+```
+
+### Robot réel
+```bash
+# Assurez-vous que l'ESP32 publie /scan_raw en UART
+./start_robot_mapping_auto.sh
+
+# Monitorer les topics
+ros2 topic echo /scan --max-count=1
+ros2 topic echo /map
+```
+
+### Test synthétique sans hardware
+```bash
+# Simulation seulement (pas besoin de LIDAR physique)
+source .venv/bin/activate
+./start_auto_slam_only.sh
+```
+
+---
+
+## 🐛 Dépannage
+
+### **Erreur : "slam_toolbox package not found"**
+```bash
+source /opt/ros/humble/setup.bash
+# Vérifier l'install
+dpkg -l | grep slam-toolbox
+```
+
+### **Erreur : "/scan_raw timeout" (robot réel)**
+```bash
+# Vérifier que l'ESP32 publie
+ros2 topic list | grep scan
+# Si absent: vérifier connexion série, baud rate
+```
+
+### **Mode autonomie ne fonctionne pas (simulation)**
+```bash
+# Vérifier pygame window active
+# Appuyer sur 'A' dans la fenêtre du simulateur
+# Vérifier logs de démarrage
+```
+
+---
+
+## 📖 Références
+
+- **SLAM Toolbox** : https://github.com/SteveMacenski/slam_toolbox
+- **ROS2 Humble** : https://docs.ros.org/en/humble/
+- **micro-ROS** : https://micro.ros.org/ (pour ESP32 firmware)
+
+---
+
+**Dernière mise à jour :** Mars 2026  
+**Auteur :** Équipe ECE - Tech Project Autonome

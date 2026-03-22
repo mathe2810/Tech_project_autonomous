@@ -1,246 +1,151 @@
-# 🚀 Quick Start - Multithreading LIDAR + micro_ros
+# 🚀 Quick Start
 
-## ⚡ 5 Minutes Setup
+Démarrage rapide pour **simulation** et **robot réel**.
 
-### 1. **Vérifier la Configuration**
+---
 
-```cpp
-// platformio.ini - Vérifier que c'est configuré
-[env:esp32dev]
-board_microros_transport = wifi
-board_microros_distro = humble
-lib_deps = https://github.com/micro-ROS/micro_ros_platformio
-build_flags = 
-    -DMICRO_ROS_TRANSPORT_ARDUINO_WIFI
-    -DBOARD_HAS_PSRAM
-    -mfix-esp32-psram-cache-issue
-```
+## ⚡ Option 1 : Simulation (2 minutes)
 
-### 2. **Compiler et Uploader**
-
+### Setup
 ```bash
-# Option 1: PlatformIO CLI
-pio run -e esp32dev -t upload
+# 1. Activer l'environnement Python
+source .venv/bin/activate
 
-# Option 2: VS Code
-# - Clic droit sur main.cpp
-# - Upload
+# 2. Sourcer ROS2
+source /opt/ros/humble/setup.bash
 
-# Monitor les logs
-pio device monitor -b 115200
+# 3. Lancer le stack simulation
+./start_auto_slam_only.sh
 ```
 
-### 3. **Branchement LIDAR**
+### Contrôles
+- **Pygame window** (le simulateur)
+  - `A` : Active/désactive l'autonomie
+  - `↑↓←→` : Commandes manuelles
+  - `Q` : Quitter
 
-```
-ESP32           LD06 LIDAR
-─────────────────────────
-GPIO16 (RX2) ←  TX
-GPIO25 (PWM) →  M_SCTR
-GND          →  GND
-5V           →  VCC
-```
-
-### 4. **Démarrer Agent micro_ros**
-
+### Visualisation (optionnel)
 ```bash
-# Terminal 1: Docker container
-docker run -it --rm \
-  -v /dev:/dev --privileged \
-  microros/micro-ros-docker:humble \
-  ros2 run micro_ros_agent micro_ros_agent udp4 \
-  --ip 0.0.0.0 --port 8888
-```
-
-### 5. **Vérifier la Connexion**
-
-```bash
-# Terminal 2: Écouter les topics
-ros2 topic list
-
-# Devrait afficher:
-# /data      (compteur Int32)
-# /scan      (LIDAR LaserScan)
-```
-
-### 6. **Visualiser les Données**
-
-```bash
-# Terminal 3: Voir compteur
-ros2 topic echo /data
-
-# Terminal 4: Voir scan LIDAR
-ros2 topic echo /scan --max-count=5
-
-# Terminal 5: RViz pour visualisation
+# Terminal 2
 rviz2
+```
+- Fixed Frame : `map`
+- Ajouter layers : LaserScan (`/scan`), OccupancyGrid (`/map`)
 
-# Ajouter:
-# - Fixed Frame: lidar_link
-# - LaserScan (/scan)
+---
+
+## ⚡ Option 2 : Robot Réel
+
+### Pré-requis
+✓ ESP32 programmé avec firmware (`platformio.ini`)
+✓ LIDAR connecté (GPIO16 RX, GPIO25 PWM)
+✓ connexion USB ou WiFi fonctionnelle
+
+### Démarrage
+```bash
+# 1. Environnement
+source .venv/bin/activate
+source /opt/ros/humble/setup.bash
+
+# 2. Lancer le stack
+./start_robot_mapping_auto.sh
+
+# Le script attendra /scan_raw pendant 15s
+# L'ESP32 doit publier rapidement
 ```
 
-## 📋 Checklist de Vérification
+### Vérification
+```bash
+# Terminal 2 - Vérifier les topics
+ros2 topic list | grep -E 'scan|odom|map'
 
-### Hardware
-- [ ] ESP32 connecté via USB
-- [ ] LIDAR connecté (UART GPIO16 + PWM GPIO25)
-- [ ] 5V/GND sur ESP32 ✓
-- [ ] Alimentation LIDAR 5V ✓
+# Écouter les scans
+ros2 topic echo /scan --max-count=1
 
-### Software
-- [ ] PlatformIO installé
-- [ ] micro_ros_platformio library ✓
-- [ ] Docker + micro_ros_agent prêt
+# Monitorer la carte
+ros2 topic echo /map --max-count=1
+```
 
-### Compilation
-- [ ] `pio run` sans erreurs
-- [ ] Upload réussi
-- [ ] Serial logs visibles
+---
 
-### ROS2 Connection
-- [ ] WiFi ESP32 conecté à réseau
-- [ ] Agent micro_ros listening sur UDP8888
-- [ ] `ros2 topic list` affiche /data et /scan
-- [ ] Messages arrivent (vérifier avec `echo`)
+## 📋 Checklist
 
-## 🔍 Troubleshooting
+### Simulation
+- [ ] Python venv activé
+- [ ] ROS2 sourced
+- [ ] Pygame window apparaît
+- [ ] Topics `/scan`, `/odom` publient (vérifier avec `ros2 topic list`)
 
-### Problem: "LIDAR not publishing"
+### Robot Réel
+- [ ] ESP32 programmé et connecté
+- [ ] LIDAR allumé et connecté
+- [ ] `/scan_raw` publié par l'ESP32 (vérifier : `ros2 topic list`)
+- [ ] Script attend puis démarre SLAM
+
+---
+
+## 🔧 Arrêter le Stack
 
 ```bash
-# Solution 1: Vérifier logs serial
-pio device monitor -b 115200
-# Chercher "[LIDAR] Tâche démarrée"
+# Option 1 : Ctrl+C dans le terminal principal
 
-# Solution 2: Vérifier CRC
-# Si beaucoup d'erreurs CRC:
-# - Vérifier câble UART
-# - Essayer baud 115200 au lieu 230400
+# Option 2 : Tuer tous les processus
+pkill -9 -f 'simu_|slam|restamper|transform'
 
-# Solution 3: Vérifier UART
-# - GPIO16 = RX2 ✓
-# - Pas de conflit pin
+# Option 3 : Spécifique
+pkill -f slam_toolbox
+pkill -f scan_restamper
+pkill -f motor_odom_simple
 ```
 
-### Problem: "WiFi connects but no ROS messages"
+---
 
+## 🐛 Problèmes Courants
+
+### "QUICKSTART: Command not found"
 ```bash
-# Solution 1: Vérifier agent
-# Terminal 1 - Agent doit afficher:
-# [INFO] Client initialized
+# Déterminer le chemin correct
+pwd
+ls start_auto_slam_only.sh
 
-# Solution 2: Vérifier IP ESP32
-# Serial logs: [WiFi] IP locale: XXX.XXX.X.X
-
-# Solution 3: Firewall
-# Si derrière firewall: ouvrir port 8888 UDP
+# Ou utiliser le chemin absolu
+/home/matheo/microros_ece_ws/src/.../start_auto_slam_only.sh
 ```
 
-### Problem: "micro_ros libraries not found"
-
+### Simulation : "No module named pygame"
 ```bash
-# Solution: Forcer mise à jour libraries
-pio lib update
-pio pkg install
-pio run -e esp32dev --verbose
+source .venv/bin/activate
+pip install pygame
 ```
 
-## 📊 Expected Output
-
-### Serial Monitor
-```
-=== SETUP START ===
-[LIDAR] Tâche démarrée sur cœur 1
-[WiFi] Connecting to iPhone (3)...
-[WiFi] IP locale: 192.168.x.x
-[STATE] Waiting for agent...
-[AGENT] Agent found! Connecting...
-[OK] ROS Entities created!
-[STATE] CONNECTED!
-[PUBLISH OK] Counter: 0
-[LIDAR PUBLISH OK] Distance: 320mm, Angle: 45°, Conf: 200
-```
-
-### ROS2 Topic Echo
+### Robot : "/scan_raw timeout"
 ```bash
-$ ros2 topic echo /data
----
-data: 0
----
-data: 1
----
-data: 2
+# Vérifier ESP32
+ros2 topic list | grep scan
 
-$ ros2 topic echo /scan
----
-header:
-  stamp:
-    sec: 5
-    nanosec: 234000000
-  frame_id: lidar_link
-angle_min: 0.0
-angle_max: 6.283185
-...
-ranges: [0.32, 0.35, 0.38, ...]
+# Si absent:
+# 1. Vérifier connexion USB
+# 2. Vérifier baud rate (généralement 115200)
+# 3. Vérifier que l'ESP32 exécute le firmware
 ```
 
-## 🎯 Cas d'Utilisation
+### SLAM ne démarre pas
+```bash
+# Vérifier installation slam_toolbox
+ros2 pkg list | grep slam
 
-### 1. Navigation Robot Autonome
-```cpp
-// Subscriber: /scan
-// Decision: Obstacle avant? → Stop moteurs
-if(laser_scan.ranges[0] < 0.5) {
-    motor_forward = 0;
-}
+# Réinstaller si absent
+sudo apt install ros-humble-slam-toolbox
 ```
-
-### 2. Cartographie (SLAM)
-```cpp
-// Publier /scan + /odom
-// Utiliser: ros2_humble + Cartographer
-ros2 launch cartographer_ros cartographer_offline_node.launch.py
-```
-
-### 3. Évitement d'Obstacles
-```cpp
-// Combiner /scan + /cmd_vel
-if(obstacle_detected()) {
-    rotate(90°);
-}
-```
-
-## 📚 Ressources
-
-| Resource | URL |
-|----------|-----|
-| micro_ros Docs | https://docs.micro-ros.org/ |
-| PlatformIO Docs | https://docs.platformio.org/ |
-| ROS2 Humble | https://docs.ros.org/en/humble/ |
-| LD06 Datasheet | https://www.ydlidar.com/ld06/ |
-| FreeRTOS ESP32 | https://esp-idf.readthedocs.io/en/latest/esp32/api-reference/system/freertos.html |
-
-## 🎓 Prochaines Étapes
-
-1. **Ring Buffer** - Implémenter 8000 points historique
-2. **PID Motor Control** - Contrôler vitesse rotation plateau
-3. **Obstacle Detection** - Alerte automatique <50cm
-4. **Web GUI** - Interface radar temps-réel
-5. **SLAM Integration** - Cartographie autonome
-
-## 📞 Support
-
-Erreurs rencontrées? Créer issue avec:
-- [ ] Logs sérial complets
-- [ ] Output `pio run -v`
-- [ ] Output `ros2 topic list`
-- [ ] Version ESP32 board
-- [ ] Version PlatformIO
 
 ---
 
-**Happy Coding!** 🚀🤖
+## 📚 Aller Plus Loin
 
-**Auteur**: GitHub Copilot  
-**Date**: 2026-01-19
+- **Simulation avancée** : Éditer `simu_lidar_auto.py` pour modifier le circuit
+- **Robot autonome** : Décommenter `wall_centering_node.py` dans `start_robot_mapping_auto.sh`
+- **Configuration SLAM** : Modifier `config/slam_corridor_slam_only.yaml` ou `config/slam_toolbox_minimal.yaml`
+
+---
+
+**Voir `README.md` pour la documentation complète.**
